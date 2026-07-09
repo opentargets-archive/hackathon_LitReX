@@ -32,3 +32,4 @@ def test_read_associations_alias_fields():
     assert r.target_symbols == ["LINC02227", "EBF1"]
     assert r.target_rsid == "rs2914231"
     assert r.disease_label == "asthma"
+    assert r.title == "EBF1 locus linked to asthma risk"   # from the STUDY column

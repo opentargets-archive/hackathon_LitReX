@@ -89,3 +89,28 @@ def test_draw_sample_deduplicates_exact_duplicate_rows():
     )
     assert sample.num_rows == 4
     assert metrics["rows_available_to_draw_from"] == 4
+
+
+def _sourced_table():
+    return pa.table({
+        "target": ["T1", "T2", "T3", "T4", "G1", "G2"],
+        "disease": ["D1", "D2", "D3", "D4", "D5", "D6"],
+        "text": ["a", "b", "c", "d", "g1", "g2"],
+        "publication_id": ["P1", "P2", "P3", "P4", "PG1", "PG2"],
+        "publication_date": [date(2025, 1, 1)] * 6,
+        "section": ["abstract"] * 6,
+        "data_source": ["open_targets"] * 4 + ["gwas_catalog"] * 2,
+    })
+
+
+def test_draw_sample_always_includes_source():
+    sample, metrics = rs.draw_sample(
+        _sourced_table(), total_diseases=100, total_targets=100,
+        target_size=2, seed=0, include_all_sources={"gwas_catalog"},
+    )
+    df = sample.to_pandas()
+    assert (df["data_source"] == "gwas_catalog").sum() == 2   # all GWAS included
+    assert (df["data_source"] == "open_targets").sum() == 2   # exactly target_size drawn
+    assert metrics["always_included"] == 2
+    assert metrics["poolable_drawn"] == 2
+    assert metrics["sample_size"] == 4

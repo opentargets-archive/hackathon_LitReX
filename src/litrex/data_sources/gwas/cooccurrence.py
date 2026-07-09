@@ -79,9 +79,10 @@ class GwasCooccurrence:
     target: str                     # canonical non-null id: Ensembl, else rsid, else symbol
     disease: str                    # EFO/MONDO/HP ontology id
     text: str                       # co-occurring sentence, or target-sent [...] disease-sent
-    publication_id: str
+    publication_id: str             # "PMID:<id>"
     publication_date: date
-    section: str                    # document section: "abstract" | "body"
+    section: str                    # document section: "abstract" | "title" | "body"
+    data_source: str                # "gwas_catalog"
     # --- span/granularity (matches litrex cooccurrence source) ---
     target_start: int
     target_end: int
@@ -131,7 +132,7 @@ def build_cooccurrences(assocs: list[Association], document: str, idx: DiseaseIn
     labels the corpus ("abstract" | "fulltext"); ``section`` is the document
     section it maps to ("abstract" | "body").
     """
-    section = "abstract" if text_source == "abstract" else "body"
+    section = {"abstract": "abstract", "title": "title"}.get(text_source, "body")
     drops = DropStats()
     out: list[GwasCooccurrence] = []
     seen: set[tuple] = set()
@@ -183,9 +184,10 @@ def build_cooccurrences(assocs: list[Association], document: str, idx: DiseaseIn
             target=canonical_target,
             disease=a.disease_id,
             text=text,
-            publication_id=a.pmid,
+            publication_id=f"PMID:{a.pmid}",
             publication_date=a.date,
             section=section,
+            data_source="gwas_catalog",
             target_start=tspan[0], target_end=tspan[1],
             disease_start=dspan[0], disease_end=dspan[1],
             text_granularity=level,

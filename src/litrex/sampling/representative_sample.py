@@ -97,34 +97,51 @@ def draw_sample(
     target_size: int = DEFAULT_TARGET_SIZE,
     existing: pa.Table | None = None,
     seed: int = 0,
+    include_all_sources: set[str] | None = None,
 ) -> tuple[pa.Table, dict]:
     """Top up `existing` (a prior manifest, or None for a first run) with
-    randomly-drawn rows from `table` until it has `target_size` rows,
-    skipping rows already present in `existing` and exact-duplicate rows
-    within `table` itself (same target/disease/publication/section/text --
-    see docs/11 session log's note on duplicate raw rows).
+    randomly-drawn rows from `table`, skipping rows already present in
+    `existing` and exact-duplicate rows within `table` itself (same
+    target/disease/publication/section/text -- see docs/11's duplicate note).
+
+    Rows whose ``data_source`` is in ``include_all_sources`` are **always**
+    added in full (never subject to the draw); ``target_size`` then counts only
+    the *poolable* rows (those from other sources). This lets a tiny source
+    (e.g. GWAS) be fully represented alongside a downsampled large one (OT).
     """
+    include_all = set(include_all_sources or ())
     row_ids = _row_ids(table)
     table = table.append_column("sample_row_id", pa.array(row_ids))
+    sources = (table["data_source"].to_pylist()
+               if "data_source" in table.column_names else [None] * table.num_rows)
 
     existing_ids: set[str] = set()
+    existing_poolable = 0
     if existing is not None and existing.num_rows > 0:
         existing_ids = set(existing["sample_row_id"].to_pylist())
+        if include_all and "data_source" in existing.column_names:
+            existing_poolable = sum(
+                1 for ds in existing["data_source"].to_pylist() if ds not in include_all
+            )
+        else:
+            existing_poolable = len(existing_ids)
 
     seen: set[str] = set(existing_ids)
-    candidate_indices = []
+    always_indices: list[int] = []
+    poolable_indices: list[int] = []
     for i, row_id in enumerate(row_ids):
         if row_id in seen:
             continue
         seen.add(row_id)
-        candidate_indices.append(i)
+        (always_indices if sources[i] in include_all else poolable_indices).append(i)
 
-    n_needed = max(target_size - len(existing_ids), 0)
-    n_draw = min(n_needed, len(candidate_indices))
+    n_needed = max(target_size - existing_poolable, 0)
+    n_draw = min(n_needed, len(poolable_indices))
 
     rng = random.Random(seed)
-    drawn_indices = sorted(rng.sample(candidate_indices, n_draw))
-    new_rows = table.take(pa.array(drawn_indices, type=pa.int64()))
+    drawn_indices = rng.sample(poolable_indices, n_draw)
+    new_indices = sorted(always_indices + drawn_indices)
+    new_rows = table.take(pa.array(new_indices, type=pa.int64()))
 
     if existing is not None and existing.num_rows > 0:
         combined = pa.concat_tables([existing, new_rows], promote_options="default")
@@ -135,8 +152,10 @@ def draw_sample(
     metrics["ontology_spread"] = ontology_spread(combined)
     metrics["sample_size"] = combined.num_rows
     metrics["new_rows_added"] = new_rows.num_rows
+    metrics["always_included"] = len(always_indices)
+    metrics["poolable_drawn"] = n_draw
     metrics["requested_target_size"] = target_size
-    metrics["rows_available_to_draw_from"] = len(candidate_indices)
+    metrics["rows_available_to_draw_from"] = len(poolable_indices)
 
     return combined, metrics
 
@@ -175,6 +194,10 @@ def _main() -> None:
     parser.add_argument("--total-diseases", type=int, default=settings.platform_total_diseases)
     parser.add_argument("--total-targets", type=int, default=settings.platform_total_targets)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--include-all-source", nargs="+", default=[],
+                        help="data_source value(s) to include in FULL (not subject to the "
+                             "target-size draw); e.g. gwas_catalog. target-size then counts "
+                             "only the remaining (poolable) sources.")
     args = parser.parse_args()
 
     if args.total_diseases is None or args.total_targets is None:
@@ -206,6 +229,7 @@ def _main() -> None:
         target_size=args.target_size,
         existing=existing,
         seed=args.seed,
+        include_all_sources=set(args.include_all_source),
     )
     write_manifest(sample, manifest_path)
     append_metadata(
