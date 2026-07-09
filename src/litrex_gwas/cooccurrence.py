@@ -1,0 +1,151 @@
+"""Match GWAS (target, disease) pairs against paper text to emit co-occurrences."""
+from __future__ import annotations
+from dataclasses import dataclass
+from datetime import date
+import logging
+import re
+import pysbd
+
+from .load import Association
+from .disease_index import DiseaseIndex
+
+logger = logging.getLogger(__name__)
+_SEG = pysbd.Segmenter(language="en", clean=False)
+
+
+def split_sentences(text: str) -> list[str]:
+    """Segment text into sentences (PySBD)."""
+    if not text:
+        return []
+    return [s.strip() for s in _SEG.segment(text) if s.strip()]
+
+
+def _word_span(text: str, token: str, ignore_case: bool) -> tuple[int, int] | None:
+    flags = re.IGNORECASE if ignore_case else 0
+    pat = r"(?<![A-Za-z0-9-])" + re.escape(token) + r"(?![A-Za-z0-9-])"
+    m = re.search(pat, text, flags)
+    return (m.start(), m.end()) if m else None
+
+
+def find_target(text: str, assoc: Association, min_symbol_len: int):
+    """Cascade-match a target alias in text: Ensembl -> symbol -> rsid.
+
+    Returns (match_type, matched_alias, (start, end)) or None.
+    """
+    if assoc.target_ensembl:
+        sp = _word_span(text, assoc.target_ensembl, ignore_case=True)
+        if sp:
+            return "ensembl", assoc.target_ensembl, sp
+    for sym in assoc.target_symbols:
+        if len(sym) < min_symbol_len:
+            continue
+        sp = _word_span(text, sym, ignore_case=False)
+        if sp:
+            return "symbol", sym, sp
+    if assoc.target_rsid:
+        sp = _word_span(text, assoc.target_rsid, ignore_case=True)
+        if sp:
+            return "rsid", assoc.target_rsid, sp
+    return None
+
+
+def find_disease(text: str, synonyms: list[str], min_len: int):
+    """Phrase-match the longest qualifying disease synonym in text.
+
+    Returns (matched_alias, (start, end)) or None.
+    """
+    for syn in sorted((s for s in synonyms if len(s) >= min_len), key=len, reverse=True):
+        sp = _word_span(text, syn, ignore_case=True)
+        if sp:
+            return syn, sp
+    return None
+
+
+@dataclass
+class Cooccurrence:
+    target: str | None
+    target_ensembl: str | None
+    target_symbol: list[str]
+    target_rsid: str
+    match_type: str
+    matched_alias: str
+    disease: str
+    disease_label: str
+    text: str
+    abstract: str
+    cooccurrence_level: str
+    target_span: tuple[int, int]
+    disease_span: tuple[int, int]
+    section: str
+    publication_id: str
+    publication_date: date
+    source: str
+    snp: str
+    p_value: str
+
+
+@dataclass
+class DropStats:
+    no_disease_syn: int = 0
+    no_disease_in_text: int = 0
+    no_target_in_text: int = 0
+    no_cooccurrence: int = 0
+
+
+def _pair_key(a: Association) -> tuple:
+    return (a.disease_id, a.target_ensembl, tuple(a.target_symbols), a.target_rsid)
+
+
+def build_cooccurrences(assocs: list[Association], abstract: str,
+                        idx: DiseaseIndex, cfg) -> tuple[list[Cooccurrence], DropStats]:
+    """Emit co-occurrence rows for a paper's unique (target, disease) pairs.
+
+    Sentence-level match preferred; abstract-level fallback; else dropped/counted.
+    """
+    drops = DropStats()
+    out: list[Cooccurrence] = []
+    seen: set[tuple] = set()
+    sentences = split_sentences(abstract)
+    for a in assocs:
+        key = _pair_key(a)
+        if key in seen:
+            continue
+        seen.add(key)
+        syns = idx.synonyms(a.disease_id)
+        if not syns:
+            drops.no_disease_syn += 1
+            continue
+        # sentence-level
+        hit = None
+        for sent in sentences:
+            mt = find_target(sent, a, cfg.min_symbol_len)
+            md = find_disease(sent, syns, cfg.min_disease_syn_len)
+            if mt and md:
+                hit = (sent, mt, md, "sentence")
+                break
+        if hit is None:
+            # abstract-level fallback
+            mt = find_target(abstract, a, cfg.min_symbol_len)
+            md = find_disease(abstract, syns, cfg.min_disease_syn_len)
+            if not mt and not md:
+                drops.no_cooccurrence += 1
+                continue
+            if not mt:
+                drops.no_target_in_text += 1
+                continue
+            if not md:
+                drops.no_disease_in_text += 1
+                continue
+            hit = (abstract, mt, md, "abstract")
+        text, (mtype, malias, tspan), (dalias, dspan), level = hit
+        out.append(Cooccurrence(
+            target=a.target_ensembl, target_ensembl=a.target_ensembl,
+            target_symbol=a.target_symbols, target_rsid=a.target_rsid,
+            match_type=mtype, matched_alias=malias,
+            disease=a.disease_id, disease_label=a.disease_label,
+            text=text, abstract=abstract, cooccurrence_level=level,
+            target_span=tspan, disease_span=dspan, section="abstract",
+            publication_id=a.pmid, publication_date=a.date, source="gwas_catalog",
+            snp=a.snp, p_value=a.p_value,
+        ))
+    return out, drops
