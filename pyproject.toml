@@ -17,6 +17,8 @@ dependencies = [
     "pysbd>=0.3.4",
     "pyyaml>=6",
     "defusedxml>=0.7",
+    # Stage 5 labelling — OpenAI alternative judge (--provider openai; anthropic above)
+    "openai>=1.82",
 ]
 
 [project.optional-dependencies]

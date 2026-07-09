@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from litrex.labelling import llm_client
+from litrex.labelling import _common, llm_client
 from litrex.labelling.llm_client import RelationJudgment
 from litrex.schema import Cooccurrence
 
@@ -71,8 +71,8 @@ def test_run_writes_labeled_triples_with_evidence(tmp_path, monkeypatch):
     manifest.to_parquet(in_path)
 
     # stub the network name lookups
-    monkeypatch.setattr(llm_client, "target_names", lambda ids: {i: "EGFR" for i in ids})
-    monkeypatch.setattr(llm_client, "disease_names", lambda ids: {i: "NSCLC" for i in ids})
+    monkeypatch.setattr(_common, "target_names", lambda ids: {i: "EGFR" for i in ids})
+    monkeypatch.setattr(_common, "disease_names", lambda ids: {i: "NSCLC" for i in ids})
     judgment = RelationJudgment(relation="amplification association", confidence=0.8,
                                 evidence_span="EGFR is amplified in NSCLC")
     client = FakeClient(judgment)
@@ -86,7 +86,7 @@ def test_run_writes_labeled_triples_with_evidence(tmp_path, monkeypatch):
     df = pd.read_parquet(out_path)
     assert list(df.columns) == [
         "target", "disease", "text", "relation", "confidence",
-        "publication_id", "publication_date", "data_source", "evidence_span",
+        "publication_id", "publication_date", "data_source", "judge_model", "evidence_span",
     ]
     assert df.iloc[0]["data_source"] == "open_targets"
     assert df.iloc[0]["evidence_span"] == "EGFR is amplified in NSCLC"
@@ -144,8 +144,8 @@ def test_run_batch_submits_and_reconciles(tmp_path, monkeypatch):
     ])
     in_path = tmp_path / "sample.parquet"
     manifest.to_parquet(in_path)
-    monkeypatch.setattr(llm_client, "target_names", lambda ids: {i: "GENE" for i in ids})
-    monkeypatch.setattr(llm_client, "disease_names", lambda ids: {i: "DISEASE" for i in ids})
+    monkeypatch.setattr(_common, "target_names", lambda ids: {i: "GENE" for i in ids})
+    monkeypatch.setattr(_common, "disease_names", lambda ids: {i: "DISEASE" for i in ids})
     judgment = RelationJudgment(relation="association", confidence=0.7, evidence_span="q")
     client = FakeBatchClient(judgment)
 

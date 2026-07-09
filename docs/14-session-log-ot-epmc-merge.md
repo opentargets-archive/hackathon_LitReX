@@ -152,21 +152,32 @@ Both branches were merged to `main` this session:
 ## Running stage 5 (labelling the merged manifest)
 
 Local is the right place (API/network-bound, no GPU/RAM need; HPC compute-node
-egress is the main risk on SLURM). With `LITREX_ANTHROPIC_API_KEY` in `.env`:
+egress is the main risk on SLURM). The CLI supports two providers and a batch
+path — the prompt/schema/output are identical; only the judge model differs, and
+a **`judge_model`** column records which model labelled each row.
 
 ```bash
-# smoke-test 20 rows first (confirms auth + parsing + per-row cost)
+# Anthropic (default, on-design). Key: LITREX_ANTHROPIC_API_KEY in .env
 uv run python -m litrex.labelling.llm_client \
   --input data/processed/sample_manifest.parquet \
-  --output data/processed/labeled_triples.parquet --limit 20
+  --output data/processed/labeled_triples.parquet --batch --limit 20   # smoke first
 
-# then the full 2,374-row manifest (drop --limit)
+# OpenAI alternative. Key: OPENAI_API_KEY in .env; default model gpt-4.1
+uv run python -m litrex.labelling.llm_client --provider openai \
+  --input data/processed/sample_manifest.parquet \
+  --output data/processed/labeled_triples.parquet --batch --limit 20
 ```
 
-The first run resolves ~1,359 targets (Ensembl REST) + ~586 diseases (OLS4) to
-display names and caches them under `data/cache/`. ~2,374 sequential API calls
-≈ 40–120 min; an Anthropic **Batch API** path (`--batch`, 50% cheaper, async) is
-a possible follow-up if the sequential wall-clock is inconvenient.
+Drop `--limit` for the full 2,374 rows. `--batch` uses the provider's Batch API
+(~50% cheaper, async submit-and-poll); omit it for synchronous per-row calls
+(~40–120 min). The first run resolves ~1,359 targets (Ensembl REST) + ~586
+diseases (OLS4) to display names and caches them under `data/cache/`.
+
+**On provider choice:** the pipeline is *designed* as a Claude judge (docs/01,
+docs/05) and docs/13's pass used Claude, so Anthropic is the on-design default.
+The OpenAI path exists for when only an OpenAI key is available; because the
+`judge_model` column is recorded per row, a mixed or GPT-labelled set stays
+auditable and a later Claude rerun is directly comparable.
 
 ## Points worth taking forward
 
