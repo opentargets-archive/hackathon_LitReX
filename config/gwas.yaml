@@ -1,0 +1,11 @@
+assoc_dir: /Users/soria/Downloads/gwas_catalog_v1.0.2-associations_e116_r2026-06-22_split
+assoc_glob: "gwas-catalog-download-associations-alt.20[0-9][0-9].tsv"
+window_years: 2
+disease_index_url: https://ftp.ebi.ac.uk/pub/databases/opentargets/platform/latest/output/disease/disease.parquet
+cache_dir: .cache
+output_path: output/gwas_cooccurrence.parquet
+europepmc_base: https://www.ebi.ac.uk/europepmc/webservices/rest
+pubmed_efetch_base: https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi
+max_req_per_sec: 3.0
+min_symbol_len: 2
+min_disease_syn_len: 4
