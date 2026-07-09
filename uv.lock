@@ -803,6 +803,7 @@ dependencies = [
     { name = "pysbd" },
     { name = "pyyaml" },
     { name = "requests" },
+    { name = "scikit-learn" },
 ]
 
 [package.optional-dependencies]
@@ -836,6 +837,7 @@ requires-dist = [
     { name = "pyspark", marker = "extra == 'spark'", specifier = ">=4.1.2" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "requests", specifier = ">=2.31" },
+    { name = "scikit-learn", specifier = ">=1.4" },
     { name = "scikit-learn", marker = "extra == 'training'", specifier = ">=1.9.0" },
     { name = "torch", marker = "extra == 'training'", specifier = ">=2.12.1" },
     { name = "transformers", marker = "extra == 'training'", specifier = ">=5.13.0" },

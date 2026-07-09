@@ -19,6 +19,9 @@ dependencies = [
     "defusedxml>=0.7",
     # Stage 5 labelling — OpenAI alternative judge (--provider openai; anthropic above)
     "openai>=1.82",
+    # Stage 6 — taxonomy clustering + stratified/grouped splits (torch/transformers
+    # stay in the [training] extra, installed on the GPU node)
+    "scikit-learn>=1.4",
 ]
 
 [project.optional-dependencies]
