@@ -1,14 +1,11 @@
-"""Stage 5 LLM relationship-judge client (docs/05-llm-labelling.md).
+"""Stage 5 LLM relationship-judge client — Anthropic (docs/05-llm-labelling.md).
 
-The real ``anthropic.Anthropic()``-based labelling pipeline that docs/13 flagged
-as still-needed (the prior pass used one-off sub-agents, not a rerunnable
-script). It reads the stage-4 sample, resolves target/disease IDs to display
-names, asks Claude to describe the relationship each row's TEXT asserts —
-structured output of ``relation`` + ``confidence`` + ``evidence_span`` — and
-writes validated ``LabeledTriple`` rows plus the raw ``evidence_span``.
-
-Uses the prompt design frozen in ``prompts.py`` (free-text ``relation``, explicit
-grounding, confidence rubric, ``[[...]]`` span marking) unchanged.
+The default, on-design judge: asks Claude to describe the relationship each
+sampled row's TEXT asserts (structured output: relation + confidence +
+evidence_span) and writes validated ``LabeledTriple`` rows plus the raw
+``evidence_span`` and a ``judge_model`` provenance column. Provider-neutral
+plumbing (prompt build, record assembly, output) lives in ``_common``; an
+alternative OpenAI judge lives in ``openai_client``.
 """
 from __future__ import annotations
 
@@ -16,49 +13,40 @@ import argparse
 import json
 import logging
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
 
 import anthropic
 import pandas as pd
 from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
 from anthropic.types.messages.batch_create_params import Request
-from pydantic import BaseModel
 
 from litrex.config import settings
-from litrex.labelling.entity_names import disease_names, target_names
+from litrex.labelling._common import (
+    LabelReport,
+    RelationJudgment,
+    finalize,
+    prepare,
+    run_sync,
+    triple_record,
+)
 from litrex.labelling.prompts import RELATION_OUTPUT_SCHEMA, SYSTEM_PROMPT, build_prompt
 from litrex.schema import Cooccurrence, LabeledTriple
 
 logger = logging.getLogger(__name__)
 
-# Span columns produced by stage 2 / stage 3 (dropped by the Cooccurrence
-# contract's extra='ignore' parsing, so read them off the raw row).
-_SPAN_COLUMNS = ("target_start", "target_end", "disease_start", "disease_end")
+__all__ = [
+    "RelationJudgment", "LabelReport", "judge", "label_row", "run", "run_batch", "main",
+]
 
 
-class RelationJudgment(BaseModel):
-    """Structured judge output.
-
-    ``evidence_span`` is an extra field beyond the ``LabeledTriple`` contract —
-    retained only in the raw output parquet for the manual-review pass.
-    """
-
-    relation: str
-    confidence: float
-    evidence_span: str
-
-
-def _span(row: dict, start_key: str, end_key: str) -> tuple[int, int] | None:
-    """Read a (start, end) char-offset span off a raw manifest row, or None."""
-    start, end = row.get(start_key), row.get(end_key)
-    if start is None or end is None or pd.isna(start) or pd.isna(end):
-        return None
-    try:
-        start, end = int(start), int(end)
-    except (TypeError, ValueError):
-        return None
-    return (start, end) if 0 <= start < end else None
+def _judge_prompt(client: anthropic.Anthropic, user_prompt: str, model: str) -> RelationJudgment:
+    response = client.messages.parse(
+        model=model, max_tokens=1024, system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_prompt}],
+        output_format=RelationJudgment,
+    )
+    return response.parsed_output
 
 
 def judge(
@@ -71,15 +59,8 @@ def judge(
     model: str | None = None,
 ) -> RelationJudgment:
     """Ask Claude to describe the relationship TEXT asserts (structured output)."""
-    user_prompt = build_prompt(target_name, disease_name, text, target_span, disease_span)
-    response = client.messages.parse(
-        model=model or settings.anthropic_model,
-        max_tokens=1024,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_prompt}],
-        output_format=RelationJudgment,
-    )
-    return response.parsed_output
+    prompt = build_prompt(target_name, disease_name, text, target_span, disease_span)
+    return _judge_prompt(client, prompt, model or settings.anthropic_model)
 
 
 def label_row(
@@ -94,79 +75,12 @@ def label_row(
     """Judge one row. Returns (LabeledTriple, evidence_span)."""
     result = judge(client, target_name, disease_name, row.text, target_span, disease_span, model)
     triple = LabeledTriple(
-        target=row.target,
-        disease=row.disease,
-        text=row.text,
-        relation=result.relation,
-        confidence=result.confidence,
-        publication_id=row.publication_id,
-        publication_date=row.publication_date,
-        data_source=row.data_source,   # provenance carried from the manifest
-    )
-    return triple, result.evidence_span
-
-
-@dataclass
-class LabelReport:
-    rows: int = 0
-    labeled: int = 0
-    errors: int = 0
-    mean_confidence: float = 0.0
-    empty_evidence: int = 0
-
-
-def _triple_record(row: Cooccurrence, result: RelationJudgment) -> dict:
-    """Build the output record (LabeledTriple fields + raw evidence_span)."""
-    triple = LabeledTriple(
         target=row.target, disease=row.disease, text=row.text,
         relation=result.relation, confidence=result.confidence,
         publication_id=row.publication_id, publication_date=row.publication_date,
         data_source=row.data_source,
     )
-    record = triple.model_dump()
-    record["evidence_span"] = result.evidence_span
-    return record
-
-
-def _finalize(rep: LabelReport, out_rows: list[dict], output_path: str | Path) -> LabelReport:
-    """Write the labelled parquet and fill the report's summary metrics."""
-    out = pd.DataFrame(out_rows)
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    out.to_parquet(output_path, index=False)
-    logger.info("wrote %d labeled triples to %s", len(out), output_path)
-    if rep.labeled:
-        rep.mean_confidence = round(float(out["confidence"].mean()), 3)
-        rep.empty_evidence = int((out["evidence_span"] == "").sum())
-    return rep
-
-
-def _prepare(df: pd.DataFrame) -> list[tuple[str, Cooccurrence, str]]:
-    """Resolve names and build the judge prompt per row.
-
-    Returns (custom_id, row, user_prompt) tuples. ``custom_id`` is stable
-    (``row-<i>``) so batch results can be keyed back to their manifest row.
-    """
-    id_to_target = target_names(sorted(df["target"].astype(str).unique()))
-    id_to_disease = disease_names(sorted(df["disease"].astype(str).unique()))
-    prepared: list[tuple[str, Cooccurrence, str]] = []
-    for i, raw in enumerate(df.to_dict("records")):
-        tspan = _span(raw, "target_start", "target_end")
-        dspan = _span(raw, "disease_start", "disease_end")
-        row = Cooccurrence(**raw)  # extra span columns dropped by extra='ignore'
-        prompt = build_prompt(
-            id_to_target[row.target], id_to_disease[row.disease], row.text, tspan, dspan
-        )
-        prepared.append((f"row-{i}", row, prompt))
-    return prepared
-
-
-def _judge_prompt(client: anthropic.Anthropic, user_prompt: str, model: str) -> RelationJudgment:
-    response = client.messages.parse(
-        model=model, max_tokens=1024, system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_prompt}],
-        output_format=RelationJudgment,
-    )
-    return response.parsed_output
+    return triple, result.evidence_span
 
 
 def run(
@@ -176,52 +90,14 @@ def run(
     limit: int | None = None,
     model: str | None = None,
 ) -> LabelReport:
-    """Label every row of the stage-4 sample and write a LabeledTriple parquet.
-
-    The output carries the six LabeledTriple contract fields plus the raw
-    ``evidence_span`` column (kept for the manual-review pass, docs/05 step 4).
-    """
+    """Label the sample synchronously via the Anthropic API."""
     # settings.anthropic_api_key comes from LITREX_ANTHROPIC_API_KEY; passing None
     # falls back to the SDK's own resolution (ANTHROPIC_API_KEY / ant profile).
     client = client or anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    df = pd.read_parquet(input_path)
-    if limit is not None:
-        df = df.head(limit)
-
-    id_to_target = target_names(sorted(df["target"].astype(str).unique()))
-    id_to_disease = disease_names(sorted(df["disease"].astype(str).unique()))
-
-    rep = LabelReport(rows=len(df))
-    out_rows: list[dict] = []
-    for raw in df.to_dict("records"):
-        tspan = _span(raw, "target_start", "target_end")
-        dspan = _span(raw, "disease_start", "disease_end")
-        row = Cooccurrence(**raw)  # extra span columns dropped by extra='ignore'
-        try:
-            triple, evidence = label_row(
-                client, row, id_to_target[row.target], id_to_disease[row.disease],
-                tspan, dspan, model,
-            )
-        except Exception as exc:  # keep going; one bad row shouldn't abort the run
-            logger.error("judge failed target=%s disease=%s pmid=%s: %s",
-                         row.target, row.disease, row.publication_id, exc)
-            rep.errors += 1
-            continue
-        record = triple.model_dump()
-        record["evidence_span"] = evidence
-        out_rows.append(record)
-        rep.labeled += 1
-        if rep.labeled % 25 == 0:
-            logger.info("labeled %d/%d", rep.labeled, rep.rows)
-
-    out = pd.DataFrame(out_rows)
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    out.to_parquet(output_path, index=False)
-    logger.info("wrote %d labeled triples to %s", len(out), output_path)
-    if rep.labeled:
-        rep.mean_confidence = round(float(out["confidence"].mean()), 3)
-        rep.empty_evidence = int((out["evidence_span"] == "").sum())
-    return rep
+    model = model or settings.anthropic_model
+    return run_sync(
+        input_path, output_path, lambda p: _judge_prompt(client, p, model), model, limit
+    )
 
 
 def run_batch(
@@ -232,18 +108,14 @@ def run_batch(
     model: str | None = None,
     poll_interval: float = 30.0,
 ) -> LabelReport:
-    """Label the sample via the Anthropic Batch API (50% cheaper, async).
-
-    Submits one batch of structured-output requests, polls until it ends, then
-    reconciles results by ``custom_id``. Same output/report as :func:`run`.
-    """
+    """Label the sample via the Anthropic Batch API (50% cheaper, async)."""
     client = client or anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    model = model or settings.anthropic_model
     df = pd.read_parquet(input_path)
     if limit is not None:
         df = df.head(limit)
-    model = model or settings.anthropic_model
 
-    prepared = _prepare(df)
+    prepared = prepare(df)
     rows_by_id = {cid: row for cid, row, _ in prepared}
     requests = [
         Request(
@@ -283,9 +155,9 @@ def run_batch(
             logger.error("batch item %s parse failed: %s", result.custom_id, exc)
             rep.errors += 1
             continue
-        out_rows.append(_triple_record(row, judgment))
+        out_rows.append(triple_record(row, judgment, model))
         rep.labeled += 1
-    return _finalize(rep, out_rows, output_path)
+    return finalize(rep, out_rows, output_path)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -294,22 +166,27 @@ def main(argv: list[str] | None = None) -> None:
                         default=Path("data/processed/sample_manifest.parquet"))
     parser.add_argument("--output", type=Path,
                         default=Path("data/processed/labeled_triples.parquet"))
+    parser.add_argument("--provider", choices=["anthropic", "openai"], default="anthropic")
     parser.add_argument("--limit", type=int, default=None, help="Label only the first N rows.")
-    parser.add_argument("--model", type=str, default=None,
-                        help="Override settings.anthropic_model.")
+    parser.add_argument("--model", type=str, default=None, help="Override the provider's model.")
     parser.add_argument("--batch", action="store_true",
-                        help="Use the Anthropic Batch API (async, 50%% cheaper) instead of "
-                             "synchronous per-row calls.")
+                        help="Use the provider's Batch API (async, ~50%% cheaper).")
     parser.add_argument("--poll-interval", type=float, default=30.0,
                         help="Seconds between batch status polls (with --batch).")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    if args.batch:
-        rep = run_batch(args.input, args.output, limit=args.limit, model=args.model,
-                        poll_interval=args.poll_interval)
+
+    if args.provider == "openai":
+        from litrex.labelling import openai_client as impl
     else:
-        rep = run(args.input, args.output, limit=args.limit, model=args.model)
+        import litrex.labelling.llm_client as impl
+
+    runner = impl.run_batch if args.batch else impl.run
+    kwargs = {"limit": args.limit, "model": args.model}
+    if args.batch:
+        kwargs["poll_interval"] = args.poll_interval
+    rep = runner(args.input, args.output, **kwargs)
     print(json.dumps(asdict(rep), indent=2))
 
 
