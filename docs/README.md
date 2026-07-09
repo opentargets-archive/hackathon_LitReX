@@ -24,6 +24,8 @@ for the scaffolding that will be created once this plan is agreed.
 | 11 | [11-session-log-cooccurrence-ingestion.md](11-session-log-cooccurrence-ingestion.md) | Session log | What's been implemented/run for stage 2, and follow-ups |
 | 12 | [12-session-log-sampling.md](12-session-log-sampling.md) | Session log | What's been implemented/run for stage 4, and follow-ups |
 | 13 | [13-session-log-llm-labelling.md](13-session-log-llm-labelling.md) | Session log | What's been implemented/run for stage 5, and follow-ups |
+| 14 | [14-session-log-ot-epmc-merge.md](14-session-log-ot-epmc-merge.md) | Session log | PR #7/#8 integration to main + stage-5 run instructions |
+| 15 | [15-data-numbers.md](15-data-numbers.md) | Tracking | Row counts per pipeline stage, current + small-scale target |
 
 ## Ownership split
 
