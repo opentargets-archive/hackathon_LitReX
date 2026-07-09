@@ -1,4 +1,4 @@
-PUBMEDID	DATE	MAPPED_GENE	SNP_GENE_IDS	SNPS	P-VALUE	MAPPED_TRAIT	MAPPED_TRAIT_URI
-111	2025-03-01	IL6	ENSG00000136244	rs1800795	5E-9	type 2 diabetes, obesity	http://www.ebi.ac.uk/efo/EFO_0001360, http://purl.obolibrary.org/obo/MONDO_0011122
-222	2010-01-01	TCF7L2	ENSG00000148737	rs7903146	1E-30	type 2 diabetes	http://www.ebi.ac.uk/efo/EFO_0001360
-333	2025-06-15	LINC02227 - EBF1		rs2914231	3E-8	asthma	http://www.ebi.ac.uk/efo/EFO_0000270
+PUBMEDID	DATE	STUDY	MAPPED_GENE	SNP_GENE_IDS	SNPS	P-VALUE	MAPPED_TRAIT	MAPPED_TRAIT_URI
+111	2025-03-01	IL6 variants associated with type 2 diabetes and obesity	IL6	ENSG00000136244	rs1800795	5E-9	type 2 diabetes, obesity	http://www.ebi.ac.uk/efo/EFO_0001360, http://purl.obolibrary.org/obo/MONDO_0011122
+222	2010-01-01	TCF7L2 and type 2 diabetes	TCF7L2	ENSG00000148737	rs7903146	1E-30	type 2 diabetes	http://www.ebi.ac.uk/efo/EFO_0001360
+333	2025-06-15	EBF1 locus linked to asthma risk	LINC02227 - EBF1		rs2914231	3E-8	asthma	http://www.ebi.ac.uk/efo/EFO_0000270

@@ -33,6 +33,7 @@ def _row():
         publication_id="PMID:12345",
         publication_date=date(2024, 1, 1),
         section="abstract",
+        data_source="open_targets",
     )
 
 
@@ -46,6 +47,7 @@ def test_label_row_maps_judgment_to_labeled_triple():
     triple, evidence = llm_client.label_row(client, _row(), "EGFR", "NSCLC")
     assert triple.relation == judgment.relation
     assert triple.confidence == 0.9
+    assert triple.data_source == "open_targets"        # provenance carried through
     assert triple.target == "ENSG00000146648"          # carried from the row
     assert triple.publication_id == "PMID:12345"
     assert evidence == judgment.evidence_span           # kept as raw extra
@@ -61,7 +63,7 @@ def test_run_writes_labeled_triples_with_evidence(tmp_path, monkeypatch):
         "target": "ENSG00000146648", "disease": "EFO_0003060",
         "text": "EGFR is amplified in NSCLC.",
         "publication_id": "PMID:1", "publication_date": date(2024, 1, 1),
-        "section": "abstract",
+        "section": "abstract", "data_source": "open_targets",
         "target_start": 0, "target_end": 4, "disease_start": 21, "disease_end": 26,
     }])
     in_path = tmp_path / "sample.parquet"
@@ -83,8 +85,9 @@ def test_run_writes_labeled_triples_with_evidence(tmp_path, monkeypatch):
     df = pd.read_parquet(out_path)
     assert list(df.columns) == [
         "target", "disease", "text", "relation", "confidence",
-        "publication_id", "publication_date", "evidence_span",
+        "publication_id", "publication_date", "data_source", "evidence_span",
     ]
+    assert df.iloc[0]["data_source"] == "open_targets"
     assert df.iloc[0]["evidence_span"] == "EGFR is amplified in NSCLC"
     # the span offsets marked the mentions in the prompt sent to the client
     assert "[[EGFR]]" in client.messages.last_kwargs["messages"][0]["content"]

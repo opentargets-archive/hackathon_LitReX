@@ -98,6 +98,7 @@ def label_row(
         confidence=result.confidence,
         publication_id=row.publication_id,
         publication_date=row.publication_date,
+        data_source=row.data_source,   # provenance carried from the manifest
     )
     return triple, result.evidence_span
 
@@ -123,7 +124,9 @@ def run(
     The output carries the six LabeledTriple contract fields plus the raw
     ``evidence_span`` column (kept for the manual-review pass, docs/05 step 4).
     """
-    client = client or anthropic.Anthropic()
+    # settings.anthropic_api_key comes from LITREX_ANTHROPIC_API_KEY; passing None
+    # falls back to the SDK's own resolution (ANTHROPIC_API_KEY / ant profile).
+    client = client or anthropic.Anthropic(api_key=settings.anthropic_api_key)
     df = pd.read_parquet(input_path)
     if limit is not None:
         df = df.head(limit)
