@@ -21,6 +21,7 @@ for the scaffolding that will be created once this plan is agreed.
 | 8 | [08-product-vision.md](08-product-vision.md) | Downstream product (light plan) | Front-end/evidence-score direction (revisit later) |
 | 9 | [09-repo-structure.md](09-repo-structure.md) | Scaffolding plan | Repo layout to create |
 | 10 | [10-open-questions.md](10-open-questions.md) | Tracking | Outstanding decisions |
+| 11 | [11-session-log-cooccurrence-ingestion.md](11-session-log-cooccurrence-ingestion.md) | Session log | What's been implemented/run for stage 2, and follow-ups |
 
 ## Ownership split
 
