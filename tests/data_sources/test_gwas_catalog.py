@@ -1,18 +1,12 @@
-import pytest
+"""The GWAS Catalog stub is now implemented in litrex.data_sources.gwas.
 
+Behavioural tests live in tests/data_sources/gwas/. This module only checks the
+public entry point is wired up.
+"""
 from litrex.data_sources import gwas_catalog
 
 
-def test_normalize_target_not_yet_implemented():
-    with pytest.raises(NotImplementedError):
-        gwas_catalog.normalize_target("EGFR")
-
-
-def test_normalize_disease_not_yet_implemented():
-    with pytest.raises(NotImplementedError):
-        gwas_catalog.normalize_disease("lung cancer")
-
-
-def test_build_text_not_yet_implemented():
-    with pytest.raises(NotImplementedError):
-        gwas_catalog.build_text({})
+def test_public_api_exposed():
+    assert callable(gwas_catalog.run)
+    assert callable(gwas_catalog.compare_corpora)
+    assert callable(gwas_catalog.main)

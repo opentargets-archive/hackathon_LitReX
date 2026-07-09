@@ -8,7 +8,13 @@ from pydantic import BaseModel
 
 
 class Cooccurrence(BaseModel):
-    """Output contract for every data source (docs/02, docs/03)."""
+    """Output contract for every data source (docs/02, docs/03).
+
+    ``data_source`` records provenance of the co-occurrence so the merged
+    dataset (Open Targets EPMC + GWAS Catalog) stays traceable through
+    sampling and labelling. ``publication_id`` is a prefixed identifier
+    (``PMID:12345``), not a bare accession.
+    """
 
     target: str
     disease: str
@@ -16,6 +22,7 @@ class Cooccurrence(BaseModel):
     publication_id: str
     publication_date: date
     section: str
+    data_source: str
 
 
 class LabeledTriple(BaseModel):
@@ -28,6 +35,7 @@ class LabeledTriple(BaseModel):
     confidence: float
     publication_id: str
     publication_date: date
+    data_source: str
 
 
 class ScoredRelationship(BaseModel):

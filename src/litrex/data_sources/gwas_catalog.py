@@ -1,36 +1,15 @@
-"""Stage 3 (delegated): docs/03-data-source-gwas-catalog.md."""
+"""GWAS Catalog data source (stage 3, docs/03-data-source-gwas-catalog.md).
 
-from pathlib import Path
+Reframed from the original OnToma-normalization stub: builds target-disease
+textual co-occurrences from the papers behind recent GWAS associations, as a
+silver training set. The implementation lives in the ``.gwas`` subpackage; this
+module is the public entry point.
 
-import pyarrow as pa
-import pyarrow.parquet as pq
+    python -m litrex.data_sources.gwas.build --config config/gwas.yaml --source both
+"""
+from __future__ import annotations
 
+from .gwas.build import compare_corpora, main, run
+from .gwas.cooccurrence import GwasCooccurrence
 
-def read_raw(source_path: str | Path) -> pa.Table:
-    return pq.read_table(source_path)
-
-
-def normalize_target(gene_symbol: str) -> str | None:
-    """Gene symbol -> Ensembl ID via OnToma. Returns None if unresolved."""
-    raise NotImplementedError
-
-
-def normalize_disease(trait: str) -> str | None:
-    """Free-text trait -> EFO ID via OnToma. Returns None if unresolved."""
-    raise NotImplementedError
-
-
-def build_text(association_row: dict) -> str:
-    """Construct a text field from GWAS association metadata.
-
-    Open design decision -- see docs/03-data-source-gwas-catalog.md.
-    """
-    raise NotImplementedError
-
-
-def to_cooccurrence(raw: pa.Table) -> pa.Table:
-    raise NotImplementedError
-
-
-def write(table: pa.Table, destination: str | Path) -> None:
-    pq.write_table(table, destination)
+__all__ = ["run", "compare_corpora", "main", "GwasCooccurrence"]
