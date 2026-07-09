@@ -104,15 +104,35 @@ The merged pool is 2.35M rows, of which GWAS is only **431 (0.018%)**. A uniform
 in one pool / schema / manifest with `data_source` provenance, but GWAS will not
 appear in a plain random sample.
 
-To actually get GWAS into the labelled (stage-5) set, pick one:
+**Resolution (user-confirmed): downsample OT + always-include all GWAS.**
+`draw_sample` gained an `include_all_sources` option (CLI `--include-all-source`):
+rows of the named `data_source`(s) are added in **full**, and `--target-size`
+then counts only the *poolable* (other) sources. Ratio chosen: **OT 2,000 +
+all GWAS** (~5:1) — enough OT for relation-language diversity and disease
+coverage, GWAS a strong ~16% minority (avoids the tiny-set / GWAS-overweight
+problems of a 1:1 split). Uniform draw for v1; stratification remains a
+follow-up (docs/12).
 
-1. **Always include all GWAS rows** (431) alongside the OT sample — GWAS is tiny,
-   so just label all of it plus the OT draw. Simplest guaranteed representation.
-2. **Stratified sampling by `data_source`** — docs/12 already flagged that
-   `draw_sample` is uniform-only; add a per-source quota. More principled.
-3. Leave as-is if GWAS is meant only to *expand coverage* opportunistically.
+### Final labelled-sample manifest (`data/processed/sample_manifest.parquet`)
 
-Decision pending with the user; not hard-coded here.
+- **2,374 rows** = **2,000 `open_targets` + 374 `gwas_catalog`** (all unique GWAS;
+  57 of the 431 GWAS rows were exact-duplicate co-occurrences — multiple rsids
+  for the same gene→disease→sentence — and collapsed by `sample_row_id`).
+- Sections: abstract 2,072 / title 302 (OT 1,705/295, GWAS 367/7).
+- Disease coverage 1.24% (586/47,080), target coverage 1.73% (1,359/78,691),
+  ontology spread entropy 0.737 — all up from the 500-row OT-only draw.
+- Every `publication_id` is `PMID:`-prefixed; `data_source` carried through.
+- **Ready for stage 5**: both sources are together in one manifest with
+  provenance.
+
+### Disk cleanup
+
+The full OT pool (`data/processed/cooccurrence/`, 264 MB) and the merged pool
+(`data/processed/merged/`, 262 MB) were **deleted** after sampling — they are
+reproducible from FTP (`--from-ftp`) and not needed for stage 5 (labelling reads
+the manifest) or stage 6 (training reads the labelled manifest). Freed ~526 MB;
+kept the manifest + the small GWAS source parquets. Re-run the ingest → merge →
+sample chain to regenerate if a re-draw or top-up is needed.
 
 ## Points worth taking forward
 
