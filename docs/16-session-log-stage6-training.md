@@ -76,10 +76,30 @@ Caveat: mean `class_margin` is 0.056 — embedding classification is soft, so
 borderline rows are approximate; the margin lets us down-weight/review them, and
 an LLM per-row pass is a possible v2 upgrade if the taxonomy needs to be crisper.
 
-### Next (pending)
+### Dataset (stage 6b) — `training/dataset.py`
 
-- `dataset.py`: entity markers, confidence filter (<0.3) + confidence-weighted
-  loss, stratified+grouped 80/10/10 + 5-fold CV.
-- `train.py`: PubMedBERT + HF `Trainer`; metrics (macro-F1, per-class, confusion,
-  calibration vs stage-5 confidence).
-- SLURM job script (offline HF cache, `--gres=gpu:1`).
+Built + run locally (names cached from stage 5). Filters confidence < 0.3
+(2,374 → 2,257), marks input as `[TGT] {gene} [/TGT] [DIS] {disease} [/DIS]
+{text}`, adds `sample_weight = confidence` and inverse-frequency `class_weights`,
+and writes grouped+stratified 80/10/10 splits + a 5-fold `cv_fold` column.
+
+Result (`data/processed/splits/`): **train 1,805 / val 226 / test 226**, class
+balance preserved in every split (e.g. no_relationship 890/111/112), **no PMID
+crosses splits**. class_weights up-weight the rare classes (negative_finding
+2.97) and down-weight no_relationship (0.41).
+
+### Training (stage 6c) — `training/train.py` + `scripts/train_stage6.slurm`
+
+PubMedBERT (`BiomedBERT-base-uncased-abstract-fulltext`) sequence classifier;
+entity markers added as special tokens (`resize_token_embeddings`); a
+`WeightedTrainer` applies class-weighted **and** per-sample confidence-weighted
+cross-entropy; eval = macro/weighted/per-class F1 + confusion matrix; saves
+model + `metrics.json` + `model_card.json`. Heavy deps are lazy-imported so the
+module imports without torch; the metric helper is unit-tested. **Runs on codon
+GPU** via the SLURM script (offline HF cache pre-downloaded on a login node,
+`--gres=gpu:1`). 76 tests pass, ruff clean.
+
+### Pending (on the GPU node)
+
+- Run `scripts/train_stage6.slurm`; record test macro-F1 / per-class F1 /
+  confusion matrix + the model card here.
