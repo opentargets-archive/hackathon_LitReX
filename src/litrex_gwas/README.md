@@ -25,8 +25,17 @@ fetched abstracts are cached under `.cache/` so re-runs skip the network.
 1. Read the year-split association TSVs, keep rows with `DATE` within the
    rolling window, explode comma-separated `MAPPED_TRAIT_URI` into one record
    per trait.
-2. Disease ID = last path segment of the trait URI; **kept only if it is in the
-   Open Targets disease index** (downloaded from OT FTP). No OnToma.
+2. Disease ID = last path segment of the trait URI; **kept only if it resolves
+   to a real disease in the Open Targets disease index** (downloaded from OT
+   FTP). No OnToma. Two cleanups applied:
+   - **Measurement filter** — terms whose OT `therapeuticAreas` include
+     `EFO_0001444` ("measurement") are dropped. This removes OBA molecular/pQTL
+     traits *and* EFO measurement traits (body height, BMI, lipid/blood-pressure
+     measurements). 0 MONDO diseases carry this tag, so it is disease-safe.
+   - **Name reconciliation** — a GWAS trait ID that OT has superseded (e.g. an
+     EFO/HP ID canonicalized to MONDO) is recovered when its trait name exactly
+     matches an OT disease name/synonym, and the output ID is canonicalized.
+     Recovered mappings are logged to `data/efo_to_mondo_namematch.tsv`.
 3. Fetch each paper's abstract by PMID (Europe PMC primary, PubMed efetch
    fallback), cached.
 4. Per paper, match its own (target, disease) pairs in text: target via an
@@ -51,28 +60,36 @@ One row per unique co-occurring `(pmid, target, disease, text, level)`. Columns:
 | metric | value |
 |---|---|
 | association rows in window (≥ 2024-07-09) | 442,744 |
-| rows kept (disease in OT index) | 435,892 |
-| dropped by ontology | EFO 6,280 · HP 354 · OBA 161 · MONDO 57 |
-| unique papers (PMIDs) | 391 |
-| abstracts found | 389 (2 missing) |
-| **co-occurrences emitted** | **445** |
-| by level | sentence 107 · abstract 338 |
-| by match tier | symbol 407 · rsid 37 · ensembl 1 |
-| output disease prefixes | MONDO 360 · EFO 56 · HP 21 · OBA 8 |
+| dropped — measurement traits (therapeuticArea filter) | 377,598 (85%) |
+| dropped — unresolvable ID | EFO 6,272 · OBA 161 · MONDO 57 · HP 4 |
+| reconciled by exact name (EFO/HP → MONDO) | 358 rows (18 distinct IDs) |
+| rows kept (real diseases) | 58,652 |
+| unique papers (PMIDs) | 240 |
+| abstracts found | 390 (cache) |
+| **co-occurrences emitted** | **423** |
+| by level | sentence 99 · abstract 324 |
+| by match tier | symbol 386 · rsid 36 · ensembl 1 |
+| output disease prefixes | **MONDO 373 · EFO 29 · HP 21 · OBA 0** |
 
-Spot-checked sentence-level rows are correct (e.g. `rs7529220` + "atrial
-fibrillation"; `PLEC` + "Alzheimer's disease" — spans land on the right
-substrings).
+The measurement filter removes 85% of trait-rows (body height, BMI, lipid and
+blood-pressure measurements) but costs almost no co-occurrences (445 → 423) —
+those traits rarely co-occurred in abstracts anyway. Output is now disease-only
+(0 OBA / 0 measurement). Spot-checked sentence-level rows are correct (e.g.
+`rs7529220` + "atrial fibrillation"; `PLEC` + "Alzheimer's disease" — spans land
+on the right substrings).
 
 ## Known limitations / v1 notes
 
-- **The OT disease index is broader than "diseases."** It includes OBA
-  (biological-attribute / pQTL measurement traits; 17k terms) and GO, so
-  membership does **not** exclude molecular/measurement traits. In this run
-  only 161 OBA rows dropped, and 8 OBA co-occurrences reached the output
-  (e.g. "glomerular filtration rate"). To get disease-only output, additionally
-  exclude ID prefixes `OBA`/`GO` (or filter on `therapeuticAreas`) — left as a
-  config decision, not hard-coded.
+- **The OT disease index is broader than "diseases"** — it includes OBA
+  (biological-attribute / pQTL measurement traits; 17k terms) and EFO
+  measurements. This is handled by the `drop_measurement` therapeuticArea
+  filter (config); set it to `false` to keep measurement traits. Note a raw
+  `OBA`-prefix filter is *insufficient* — most EFO terms (7.6k/9.3k) are also
+  measurements.
+- **Name reconciliation is exact-match only** — it recovers superseded IDs whose
+  trait name matches an OT disease name/synonym verbatim (18 IDs this run). IDs
+  with no in-index key and no exact-name match are still dropped (8k rows, ~1.5%);
+  fuzzy/xref-based mapping is a possible v2 (this is what OnToma would do).
 - **Ensembl IDs essentially never appear in abstract text** (1 match). Symbols
   and rs IDs carry the signal, as expected — the cascade handles this.
 - **Abstract-level dominates** (338 vs 107). Only abstracts are mined in v1;

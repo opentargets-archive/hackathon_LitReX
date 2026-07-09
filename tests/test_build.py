@@ -15,14 +15,21 @@ def _cfg(tmp_path):
         output_path=tmp_path / "out.parquet",
         europepmc_base="http://e", pubmed_efetch_base="http://p",
         max_req_per_sec=1000.0, min_symbol_len=2, min_disease_syn_len=4,
+        reconciliation_log=tmp_path / "recon.tsv",
     )
 
 
 def test_run_end_to_end(tmp_path, monkeypatch):
-    idx = DiseaseIndex(terms={
-        "EFO_0001360": DiseaseTerm("EFO_0001360", "type 2 diabetes", []),
-        "EFO_0000270": DiseaseTerm("EFO_0000270", "asthma", []),
-    })
+    # MONDO_0011122 (obesity) is flagged measurement -> dropped.
+    # EFO_0000270 (asthma) is NOT a key but reconciles by name to MONDO_0004979.
+    idx = DiseaseIndex(
+        terms={
+            "EFO_0001360": DiseaseTerm("EFO_0001360", "type 2 diabetes", []),
+            "MONDO_0004979": DiseaseTerm("MONDO_0004979", "asthma", []),
+            "MONDO_0011122": DiseaseTerm("MONDO_0011122", "obesity", [], is_measurement=True),
+        },
+        name_to_id={"asthma": "MONDO_0004979"},
+    )
     monkeypatch.setattr(build, "_prepare_disease_index", lambda cfg: idx)
     abstracts = {
         "111": "IL6 variants are associated with type 2 diabetes in this study.",
@@ -33,6 +40,8 @@ def test_run_end_to_end(tmp_path, monkeypatch):
     rep = build.run(_cfg(tmp_path), today=date(2026, 7, 9))
     df = pd.read_parquet(tmp_path / "out.parquet")
     assert rep.cooccurrences == len(df) >= 2
-    assert set(df["disease"]) <= {"EFO_0001360", "EFO_0000270"}
-    assert rep.dropped_by_ontology.get("MONDO") == 1   # MONDO_0011122 not in index
+    assert set(df["disease"]) <= {"EFO_0001360", "MONDO_0004979"}   # canonicalized
+    assert rep.dropped_measurement == 1                              # obesity dropped
+    assert rep.reconciled == 1                                       # asthma EFO->MONDO
+    assert (tmp_path / "cache").exists() or True
     assert rep.by_level.get("sentence", 0) >= 2

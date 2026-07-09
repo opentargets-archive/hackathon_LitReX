@@ -9,3 +9,10 @@ pubmed_efetch_base: https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi
 max_req_per_sec: 3.0
 min_symbol_len: 2
 min_disease_syn_len: 4
+# Disease-space cleanup (see docs spec §6). Drop measurement/attribute traits
+# (OBA + EFO measurements) by their OT therapeuticArea, and recover superseded
+# trait IDs (e.g. EFO canonicalized to MONDO) by exact name match.
+drop_measurement: true
+measurement_ta_id: EFO_0001444
+reconcile_by_name: true
+reconciliation_log: data/efo_to_mondo_namematch.tsv

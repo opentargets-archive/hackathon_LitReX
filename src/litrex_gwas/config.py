@@ -19,6 +19,11 @@ class Config:
     max_req_per_sec: float
     min_symbol_len: int
     min_disease_syn_len: int
+    # Disease-space cleanup (added after inspecting the real OT disease index).
+    drop_measurement: bool = True
+    measurement_ta_id: str = "EFO_0001444"
+    reconcile_by_name: bool = True
+    reconciliation_log: Path = Path("data/efo_to_mondo_namematch.tsv")
 
 
 def load_config(path: Path) -> Config:
@@ -36,6 +41,10 @@ def load_config(path: Path) -> Config:
         max_req_per_sec=float(data["max_req_per_sec"]),
         min_symbol_len=int(data["min_symbol_len"]),
         min_disease_syn_len=int(data["min_disease_syn_len"]),
+        drop_measurement=bool(data.get("drop_measurement", True)),
+        measurement_ta_id=data.get("measurement_ta_id", "EFO_0001444"),
+        reconcile_by_name=bool(data.get("reconcile_by_name", True)),
+        reconciliation_log=Path(data.get("reconciliation_log", "data/efo_to_mondo_namematch.tsv")),
     )
 
 

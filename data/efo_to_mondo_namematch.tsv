@@ -1,0 +1,19 @@
+gwas_id	gwas_label	ot_canonical_id	ot_name
+EFO_1000755	pigmentation disease	MONDO_0019288	skin pigmentation disorder
+HP_0000031	Epididymitis	MONDO_0004779	epididymitis
+HP_0000175	Cleft palate	MONDO_0007336	isolated cleft palate
+HP_0000202	Orofacial cleft	MONDO_0000358	orofacial cleft
+HP_0000545	Myopia	MONDO_0001384	myopia
+HP_0000934	Chondrocalcinosis	MONDO_0001314	chondrocalcinosis
+HP_0001915	Aplastic anemia	MONDO_0012197	idiopathic aplastic anemia
+HP_0001919	Acute kidney injury	MONDO_0002492	acute kidney injury
+HP_0002110	Bronchiectasis	MONDO_0004822	bronchiectasis
+HP_0002140	Ischemic stroke	MONDO_1060198	ischemic stroke
+HP_0002840	Lymphadenitis	MONDO_0002052	lymphadenitis
+HP_0003040	Arthropathy	MONDO_0006816	arthropathy
+HP_0003077	Hyperlipidemia	MONDO_0021187	hyperlipidemia
+HP_0010566	Hamartoma	MONDO_0006499	hamartoma
+HP_0030151	Cholangitis	MONDO_0004789	cholangitis
+HP_0030160	Cervicitis	MONDO_0002345	cervicitis
+HP_0100537	Fasciitis	MONDO_0004830	fasciitis
+HP_0100633	Esophagitis	MONDO_0001409	esophagitis

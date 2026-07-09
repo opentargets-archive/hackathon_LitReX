@@ -22,6 +22,8 @@ class Report:
     after_date: int = 0
     after_disease_filter: int = 0
     dropped_by_ontology: dict[str, int] = field(default_factory=dict)
+    dropped_measurement: int = 0
+    reconciled: int = 0
     unique_pmids: int = 0
     abstracts_found: int = 0
     cooccurrences: int = 0
@@ -32,7 +34,7 @@ class Report:
 
 def _prepare_disease_index(cfg: Config) -> DiseaseIndex:
     path = download_disease_index(cfg.disease_index_url, cfg.cache_dir / "disease.parquet")
-    return load_disease_index(path)
+    return load_disease_index(path, cfg.measurement_ta_id)
 
 
 def _prepare_abstracts(cfg: Config, pmids: list[str]) -> dict[str, str]:
@@ -41,6 +43,33 @@ def _prepare_abstracts(cfg: Config, pmids: list[str]) -> dict[str, str]:
 
 def _ontology_prefix(disease_id: str) -> str:
     return disease_id.split("_", 1)[0] if disease_id else "?"
+
+
+def _resolve_disease(a: Association, idx: DiseaseIndex, cfg: Config):
+    """Resolve a GWAS trait to a canonical disease ID.
+
+    Returns (canonical_id, reconciled_from) where reconciled_from is the original
+    GWAS ID if it was recovered by name match (else None), or (None, None) if the
+    trait is not a resolvable disease.
+    """
+    if idx.contains(a.disease_id):
+        return a.disease_id, None
+    if cfg.reconcile_by_name:
+        canonical = idx.resolve_name(a.disease_label)
+        if canonical:
+            return canonical, a.disease_id
+    return None, None
+
+
+def _write_reconciliation_log(path: Path, recs: dict[str, tuple[str, str]],
+                              idx: DiseaseIndex) -> None:
+    """Write recovered (superseded GWAS ID -> canonical OT ID) mappings for review."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = [{"gwas_id": gid, "gwas_label": label, "ot_canonical_id": cid,
+             "ot_name": idx.terms[cid].name if idx.contains(cid) else ""}
+            for gid, (cid, label) in sorted(recs.items())]
+    pd.DataFrame(rows).to_csv(path, sep="\t", index=False)
+    logger.info("wrote %d name-reconciled disease mappings to %s", len(rows), path)
 
 
 def cooccurrences_to_frame(rows: list[Cooccurrence]) -> pd.DataFrame:
@@ -63,14 +92,26 @@ def run(cfg: Config, today: date) -> Report:
     idx = _prepare_disease_index(cfg)
 
     by_pmid: dict[str, list[Association]] = {}
+    reconciliations: dict[str, tuple[str, str]] = {}  # gwas_id -> (canonical_id, label)
     for a in read_associations(paths, cutoff):
         rep.after_date += 1
-        if not idx.contains(a.disease_id):
+        canonical, reconciled_from = _resolve_disease(a, idx, cfg)
+        if canonical is None:
             prefix = _ontology_prefix(a.disease_id)
             rep.dropped_by_ontology[prefix] = rep.dropped_by_ontology.get(prefix, 0) + 1
             continue
+        if cfg.drop_measurement and idx.is_measurement(canonical):
+            rep.dropped_measurement += 1
+            continue
+        if reconciled_from is not None:
+            rep.reconciled += 1
+            reconciliations[reconciled_from] = (canonical, a.disease_label)
+        a.disease_id = canonical  # canonicalize output ID
         rep.after_disease_filter += 1
         by_pmid.setdefault(a.pmid, []).append(a)
+
+    if reconciliations:
+        _write_reconciliation_log(cfg.reconciliation_log, reconciliations, idx)
 
     rep.unique_pmids = len(by_pmid)
     abstracts = _prepare_abstracts(cfg, list(by_pmid))
