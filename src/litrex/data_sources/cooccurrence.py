@@ -9,12 +9,17 @@ in case a future release mixes in other entity-pair types (e.g. GP-GP).
 """
 
 import argparse
+import re
+import time
+from datetime import date
 from pathlib import Path
 
+import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.fs as pafs
 import pyarrow.parquet as pq
+import requests
 
 from litrex.schema import Cooccurrence
 
@@ -40,6 +45,16 @@ _REQUIRED_RAW_COLUMNS = (
 )
 
 _REQUIRED_OUTPUT_COLUMNS = ("target", "disease", "text", "publication_id", "publication_date")
+
+# Provenance tag for every row this module emits (schema.Cooccurrence.data_source).
+DATA_SOURCE = "open_targets"
+
+
+def _prefix_pmid(pmid: pa.Array) -> pa.Array:
+    """Turn a bare PMID array into canonical ``PMID:<id>`` identifiers."""
+    return pc.binary_join_element_wise(
+        pa.scalar("PMID:"), pc.cast(pmid, pa.string()), pa.scalar("")
+    )
 
 # Some upstream text spans are meant to be a single sentence but retain
 # unstripped HTML tags (e.g. structured-abstract headers like <h4>) or
@@ -120,9 +135,10 @@ def to_cooccurrence(raw: pa.Table) -> pa.Table:
             "target": gene_disease["mappedId1"],
             "disease": gene_disease["mappedId2"],
             "text": gene_disease["text"],
-            "publication_id": gene_disease["pmid"],
+            "publication_id": _prefix_pmid(gene_disease["pmid"]),
             "publication_date": gene_disease["date"],
             "section": gene_disease["section"],
+            "data_source": pa.array([DATA_SOURCE] * gene_disease.num_rows, pa.string()),
             "evidence_score": gene_disease["evidenceScore"],
             "target_start": gene_disease["start1"],
             "target_end": gene_disease["end1"],
@@ -161,15 +177,190 @@ def ingest(raw_dir: str | Path, output_dir: str | Path) -> dict[str, int]:
     return row_counts
 
 
+# --- Public FTP path: Open Targets `evidence_europepmc` -------------------
+# The flat intermediate `literature/cooccurrence` dataset (used by the GCS
+# path above) is NOT published on the public FTP. Its co-occurrence content
+# lives in the `evidence_europepmc` output as a nested `textMiningSentences`
+# array, one row per (target, disease, publication). We explode that array
+# back into one Cooccurrence row per sentence.
+
+DEFAULT_FTP_EPMC_URL = (
+    "https://ftp.ebi.ac.uk/pub/databases/opentargets/platform/26.06/output/evidence_europepmc/"
+)
+_EPMC_REQUIRED_COLUMNS = (
+    "targetId", "diseaseId", "literature", "publicationDate", "resourceScore",
+    "textMiningSentences",
+)
+_TAG_RE = re.compile(r"</?[A-Za-z][^<>]{0,40}>")
+_SENT_RE = re.compile(r"[.!?]+\s+")
+
+
+def _granularity(text: str) -> str:
+    if not isinstance(text, str):
+        return "chunk"
+    if _TAG_RE.search(text) or len(_SENT_RE.split(text)) > 1:
+        return "chunk"
+    return "sentence"
+
+
+def to_cooccurrence_epmc(raw: pa.Table, start_date: date, sections: list[str]) -> pa.Table:
+    """Map an `evidence_europepmc` part-table to the Cooccurrence contract.
+
+    Explodes `textMiningSentences` into one row per sentence, keeps only rows
+    whose publication is on/after ``start_date`` and whose sentence ``section``
+    is in ``sections``, and tags every row ``data_source='open_targets'`` with a
+    ``PMID:``-prefixed ``publication_id``.
+    """
+    missing = [c for c in _EPMC_REQUIRED_COLUMNS if c not in raw.column_names]
+    if missing:
+        raise ValueError(f"raw epmc table missing expected columns: {missing}")
+
+    df = raw.select(list(_EPMC_REQUIRED_COLUMNS)).to_pandas()
+    start_str = start_date.isoformat()
+    df = df[df["publicationDate"].notna()]
+    df = df[df["publicationDate"].astype(str).str.slice(0, 10) >= start_str]
+    df["publication_id"] = df["literature"].map(
+        lambda lit: f"PMID:{lit[0]}" if lit is not None and len(lit) else None
+    )
+    df = df[df["publication_id"].notna()]
+    if df.empty:
+        return _empty_epmc_table()
+
+    df = df.explode("textMiningSentences")
+    df = df[df["textMiningSentences"].notna()]
+    if df.empty:
+        return _empty_epmc_table()
+    sent = pd.DataFrame(list(df["textMiningSentences"]), index=df.index)
+
+    out = pd.DataFrame({
+        "target": df["targetId"].to_numpy(),
+        "disease": df["diseaseId"].to_numpy(),
+        "text": sent["text"].to_numpy(),
+        "publication_id": df["publication_id"].to_numpy(),
+        "publication_date": pd.to_datetime(
+            df["publicationDate"].astype(str).str.slice(0, 10), errors="coerce"
+        ).dt.date.to_numpy(),
+        "section": sent["section"].to_numpy(),
+        "data_source": DATA_SOURCE,
+        "evidence_score": df["resourceScore"].to_numpy(),
+        "target_start": sent["tStart"].to_numpy(),
+        "target_end": sent["tEnd"].to_numpy(),
+        "disease_start": sent["dStart"].to_numpy(),
+        "disease_end": sent["dEnd"].to_numpy(),
+    })
+    out = out[out["section"].isin(sections)]
+    out = out.dropna(subset=["target", "disease", "text", "publication_date"])
+    if out.empty:
+        return _empty_epmc_table()
+    out["text_granularity"] = out["text"].map(_granularity)
+    return pa.Table.from_pandas(out, preserve_index=False)
+
+
+def _empty_epmc_table() -> pa.Table:
+    cols = ["target", "disease", "text", "publication_id", "publication_date", "section",
+            "data_source", "evidence_score", "target_start", "target_end",
+            "disease_start", "disease_end", "text_granularity"]
+    return pa.table({c: pa.array([], pa.string()) for c in cols})
+
+
+def list_ftp_parts(base_url: str = DEFAULT_FTP_EPMC_URL) -> list[str]:
+    """List `part-*.parquet` filenames under an Open Targets FTP dataset URL."""
+    resp = requests.get(base_url, timeout=60)
+    resp.raise_for_status()
+    return sorted(set(re.findall(r'href="(part-[^"?]+\.parquet)"', resp.text)))
+
+
+def ingest_epmc_ftp(
+    output_dir: str | Path,
+    base_url: str = DEFAULT_FTP_EPMC_URL,
+    start_date: date | None = None,
+    sections: list[str] | None = None,
+    tmp_dir: str | Path = "data/raw/epmc_tmp",
+    limit_files: int | None = None,
+) -> dict[str, int]:
+    """Download `evidence_europepmc` part-files from FTP and ingest them.
+
+    Each file is downloaded, exploded/filtered to the 2-year + section window,
+    written to ``output_dir``, then the raw file is deleted — so peak disk is
+    one raw part-file (~90MB) plus the (small, filtered) processed output.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    tmp_dir = Path(tmp_dir)
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    sections = sections or ["abstract", "title"]
+
+    parts = list_ftp_parts(base_url)
+    if limit_files is not None:
+        parts = parts[:limit_files]
+
+    row_counts: dict[str, int] = {}
+    for name in parts:
+        if (output_dir / name).exists():  # resume: skip already-ingested parts
+            continue
+        raw_path = tmp_dir / name
+        _download_with_retry(base_url + name, raw_path)
+        mapped = to_cooccurrence_epmc(read_raw(raw_path), start_date, sections)
+        write(mapped, output_dir / name)
+        raw_path.unlink()
+        row_counts[name] = mapped.num_rows
+    return row_counts
+
+
+def _download_with_retry(url: str, dest: Path, max_tries: int = 5) -> None:
+    """Stream a URL to ``dest``, retrying transient network errors with backoff."""
+    delay = 2.0
+    for attempt in range(1, max_tries + 1):
+        try:
+            with requests.get(url, stream=True, timeout=(30, 120)) as resp:
+                resp.raise_for_status()
+                with open(dest, "wb") as fh:
+                    for chunk in resp.iter_content(chunk_size=1 << 20):
+                        fh.write(chunk)
+            return
+        except requests.RequestException:
+            dest.unlink(missing_ok=True)  # drop the partial file before retrying
+            if attempt == max_tries:
+                raise
+            time.sleep(delay)
+            delay *= 2
+
+
+def _default_start_date() -> date:
+    """Two years before today (stage-4 window lower bound)."""
+    today = date.today()
+    try:
+        return today.replace(year=today.year - 2)
+    except ValueError:
+        return date(today.year - 2, 3, 1)
+
+
 def _main() -> None:
     parser = argparse.ArgumentParser(
-        description="Download and ingest the Open Targets literature cooccurrence dataset."
+        description="Ingest the Open Targets literature cooccurrence dataset."
     )
+    parser.add_argument("--from-ftp", action="store_true",
+                        help="Ingest evidence_europepmc from the public FTP (no GCS auth).")
     parser.add_argument("--raw-dir", default="data/raw/cooccurrence")
     parser.add_argument("--output-dir", default="data/processed/cooccurrence")
     parser.add_argument("--source-uri", default=DEFAULT_SOURCE_URI)
+    parser.add_argument("--ftp-url", default=DEFAULT_FTP_EPMC_URL)
+    parser.add_argument("--start-date", default=None, help="YYYY-MM-DD; default 2 years ago")
+    parser.add_argument("--sections", nargs="+", default=["abstract", "title"])
+    parser.add_argument("--limit-files", type=int, default=None)
     parser.add_argument("--skip-download", action="store_true", help="reuse an existing raw dir")
     args = parser.parse_args()
+
+    if args.from_ftp:
+        start = date.fromisoformat(args.start_date) if args.start_date else _default_start_date()
+        row_counts = ingest_epmc_ftp(
+            args.output_dir, base_url=args.ftp_url, start_date=start,
+            sections=args.sections, limit_files=args.limit_files,
+        )
+        total_rows = sum(row_counts.values())
+        print(f"wrote {total_rows} rows across {len(row_counts)} files to {args.output_dir} "
+              f"(FTP evidence_europepmc, >= {start}, sections={args.sections})")
+        return
 
     if not args.skip_download:
         local_paths = download(args.raw_dir, args.source_uri)
@@ -188,7 +379,10 @@ __all__ = [
     "Cooccurrence",
     "download",
     "ingest",
+    "ingest_epmc_ftp",
+    "list_ftp_parts",
     "read_raw",
     "to_cooccurrence",
+    "to_cooccurrence_epmc",
     "write",
 ]
