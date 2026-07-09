@@ -14,6 +14,7 @@ def test_label_row_not_yet_implemented():
         publication_id="PMID:12345",
         publication_date=date(2024, 1, 1),
         section="abstract",
+        data_source="open_targets",
     )
     with pytest.raises(NotImplementedError):
         llm_client.label_row(client=None, row=row, target_name="EGFR", disease_name="NSCLC")

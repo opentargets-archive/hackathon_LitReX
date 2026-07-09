@@ -37,15 +37,14 @@ def test_run_end_to_end(tmp_path, monkeypatch):
         "111": "IL6 variants are associated with type 2 diabetes in this study.",
         "333": "EBF1 near-variants show a link to asthma risk.",
     }
-    fulltext = {  # 333 gains a pair only in full text (sentence-level)
-        "111": "IL6 variants are associated with type 2 diabetes in this study.",
-        "333": "EBF1 near-variants show a link to asthma risk. TCF7L2 too.",
-    }
-    monkeypatch.setattr(build, "_prepare_texts",
-                        lambda cfg, pmids, source: abstracts if source == "abstract" else fulltext)
+    # `both` now = abstract + title; title text comes from the STUDY column
+    # (build's _prepare_texts derives it from by_pmid, no fetch), but we stub
+    # abstract fetching here.
+    monkeypatch.setattr(build, "load_or_fetch_abstracts",
+                        lambda pmids, cfg, path: abstracts)
 
     reports = build.run(_cfg(tmp_path), today=date(2026, 7, 9), source="both")
-    assert set(reports) == {"abstract", "fulltext"}
+    assert set(reports) == {"abstract", "title"}
 
     rep = reports["abstract"]
     df = pd.read_parquet(tmp_path / "out_abstract.parquet")
@@ -54,16 +53,20 @@ def test_run_end_to_end(tmp_path, monkeypatch):
     assert rep.dropped_measurement == 1                              # obesity dropped
     assert rep.reconciled == 1                                       # asthma EFO->MONDO
     assert (df["text_source"] == "abstract").all()
+    assert (df["section"] == "abstract").all()
+    assert (df["data_source"] == "gwas_catalog").all()
+    assert df["publication_id"].str.startswith("PMID:").all()
 
-    ftdf = pd.read_parquet(tmp_path / "out_fulltext.parquet")
-    assert (ftdf["text_source"] == "fulltext").all()
+    # title corpus: mined from the STUDY column, section='title'
+    tdf = pd.read_parquet(tmp_path / "out_title.parquet")
+    assert (tdf["section"] == "title").all()
+    assert len(tdf) >= 1   # e.g. "IL6 variants associated with type 2 diabetes and obesity"
 
     # per-source breakdowns must not alias: each sums to its own cooccurrences
     for r in reports.values():
         assert sum(r.by_level.values()) == r.cooccurrences
         assert sum(r.by_match_type.values()) == r.cooccurrences
-    assert reports["abstract"].by_level is not reports["fulltext"].by_level
+    assert reports["abstract"].by_level is not reports["title"].by_level
 
     comp = build.compare_corpora(_cfg(tmp_path))
-    assert comp["cooccurrences"]["fulltext"] >= comp["cooccurrences"]["abstract"]
-    assert comp["pairs_shared"] >= 1
+    assert "cooccurrences" in comp and set(comp["cooccurrences"]) == {"abstract", "title"}

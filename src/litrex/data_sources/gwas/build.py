@@ -19,7 +19,11 @@ from .load import Association, read_associations
 
 logger = logging.getLogger(__name__)
 
-SOURCES = ("abstract", "fulltext")
+# "abstract" and "title" mirror the Open Targets EPMC sections; "fulltext" is an
+# opt-in extra (Europe PMC OA body). `--source both` = abstract + title, the pair
+# that merges cleanly with the OT cooccurrence pool.
+SOURCES = ("abstract", "title", "fulltext")
+_MERGE_SOURCES = ("abstract", "title")
 
 
 @dataclass
@@ -43,9 +47,15 @@ def _prepare_disease_index(cfg: Config) -> DiseaseIndex:
     return load_disease_index(path, cfg.measurement_ta_id)
 
 
-def _prepare_texts(cfg: Config, pmids: list[str], source: str) -> dict[str, str]:
+def _prepare_texts(
+    cfg: Config, by_pmid: dict[str, list[Association]], source: str
+) -> dict[str, str]:
+    pmids = list(by_pmid)
     if source == "abstract":
         return load_or_fetch_abstracts(pmids, cfg, cfg.cache_dir / "abstracts.parquet")
+    if source == "title":
+        # Title text is the GWAS `STUDY` column — local, no fetch needed.
+        return {pmid: assocs[0].title for pmid, assocs in by_pmid.items() if assocs[0].title}
     return load_or_fetch_fulltext(pmids, cfg, cfg.cache_dir / "fulltext.parquet")
 
 
@@ -166,12 +176,12 @@ def _match_and_write(cfg: Config, by_pmid: dict[str, list[Association]], idx: Di
 
 def run(cfg: Config, today: date, source: str = "both") -> dict[str, Report]:
     """Run the pipeline over one or both text corpora. Returns {source: Report}."""
-    sources = SOURCES if source == "both" else (source,)
+    sources = _MERGE_SOURCES if source == "both" else (source,)
     idx = _prepare_disease_index(cfg)
     by_pmid, base = _build_pairs(cfg, today, idx)
     reports: dict[str, Report] = {}
     for src in sources:
-        texts = _prepare_texts(cfg, list(by_pmid), src)
+        texts = _prepare_texts(cfg, by_pmid, src)
         reports[src] = _match_and_write(cfg, by_pmid, idx, texts, src, base)
     return reports
 
@@ -181,20 +191,20 @@ def _pair_ids(df: pd.DataFrame) -> set:
     return set(zip(df["publication_id"], df["target"], df["disease"]))
 
 
-def compare_corpora(cfg: Config) -> dict:
-    """Compare abstract vs fulltext outputs (must both exist). Returns a stats dict."""
-    dfs = {s: pd.read_parquet(_output_path(cfg.output_path, s)) for s in SOURCES}
+def compare_corpora(cfg: Config, sources: tuple[str, str] = _MERGE_SOURCES) -> dict:
+    """Compare two corpus outputs (default abstract vs title). Returns a stats dict."""
+    a, b = sources
+    dfs = {s: pd.read_parquet(_output_path(cfg.output_path, s)) for s in sources}
     pairs = {s: _pair_ids(df) for s, df in dfs.items()}
-    ab, ft = pairs["abstract"], pairs["fulltext"]
     return {
         "cooccurrences": {s: len(df) for s, df in dfs.items()},
         "papers_covered": {s: df["publication_id"].nunique() for s, df in dfs.items()},
         "sentence_level": {s: int((df["text_granularity"] == "sentence").sum())
                            for s, df in dfs.items()},
         "unique_pairs": {s: len(p) for s, p in pairs.items()},
-        "pairs_shared": len(ab & ft),
-        "pairs_fulltext_only": len(ft - ab),
-        "pairs_abstract_only": len(ab - ft),
+        "pairs_shared": len(pairs[a] & pairs[b]),
+        f"pairs_{b}_only": len(pairs[b] - pairs[a]),
+        f"pairs_{a}_only": len(pairs[a] - pairs[b]),
     }
 
 

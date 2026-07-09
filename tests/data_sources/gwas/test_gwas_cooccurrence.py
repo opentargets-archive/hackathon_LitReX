@@ -16,7 +16,8 @@ class Cfg:
 
 
 def _assoc(**kw):
-    base = dict(pmid="1", date=date(2025, 1, 1), disease_id="EFO_0000270",
+    base = dict(pmid="1", date=date(2025, 1, 1), title="IL6 and asthma",
+                disease_id="EFO_0000270",
                 disease_label="asthma", target_ensembl=None,
                 target_symbols=["IL6"], target_rsid="rs1800795", snp="rs1800795", p_value="5E-9")
     base.update(kw)
@@ -59,9 +60,19 @@ def test_build_sentence_level():
     assert r.match_type == "symbol"
     assert r.disease == "EFO_0000270"
     assert "asthma" in r.text.lower()
+    assert r.data_source == "gwas_catalog"
+    assert r.publication_id == "PMID:1"              # bare pmid -> PMID:1
     # spans point at the matched substrings within text
     assert r.text[r.target_start:r.target_end] == "IL6"
     assert r.text[r.disease_start:r.disease_end].lower() == "asthma"
+
+
+def test_build_title_source_maps_to_title_section():
+    title = "IL6 associated with asthma"
+    rows, _ = build_cooccurrences([_assoc()], title, IDX, Cfg(), "title")
+    assert len(rows) == 1
+    assert rows[0].section == "title"
+    assert rows[0].text_source == "title"
 
 
 def test_build_document_level_fallback():

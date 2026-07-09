@@ -11,7 +11,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-_COLS = ["PUBMEDID", "DATE", "MAPPED_GENE", "SNP_GENE_IDS", "SNPS",
+_COLS = ["PUBMEDID", "DATE", "STUDY", "MAPPED_GENE", "SNP_GENE_IDS", "SNPS",
          "P-VALUE", "MAPPED_TRAIT", "MAPPED_TRAIT_URI"]
 
 
@@ -19,6 +19,7 @@ _COLS = ["PUBMEDID", "DATE", "MAPPED_GENE", "SNP_GENE_IDS", "SNPS",
 class Association:
     pmid: str
     date: date
+    title: str            # paper title (GWAS `STUDY` column) — the title-corpus text
     disease_id: str
     disease_label: str
     target_ensembl: str | None
@@ -81,10 +82,11 @@ def read_associations(paths: list[Path], cutoff: date) -> Iterator[Association]:
             rsid = row.get("SNPS", "").strip()
             snp = rsid
             pval = row.get("P-VALUE", "").strip()
+            title = row.get("STUDY", "").strip()
             for i, uri in enumerate(uris):
                 label = labels[i] if i < len(labels) else ""
                 yield Association(
-                    pmid=pmid, date=d,
+                    pmid=pmid, date=d, title=title,
                     disease_id=strip_trait_id(uri), disease_label=label,
                     target_ensembl=ens, target_symbols=symbols,
                     target_rsid=rsid, snp=snp, p_value=pval,

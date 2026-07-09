@@ -6,6 +6,55 @@ import pytest
 from litrex.data_sources import cooccurrence
 from litrex.schema import Cooccurrence
 
+_TMS_TYPE = pa.list_(pa.struct([
+    ("dEnd", pa.int64()), ("dStart", pa.int64()), ("section", pa.string()),
+    ("tEnd", pa.int64()), ("tStart", pa.int64()), ("text", pa.string()),
+]))
+
+
+def _epmc_raw() -> pa.Table:
+    """Synthetic evidence_europepmc part-table (nested textMiningSentences)."""
+    tms = pa.array(
+        [
+            [
+                {"dEnd": 20, "dStart": 15, "section": "abstract",
+                 "tEnd": 4, "tStart": 0, "text": "EGFR drives NSCLC in this cohort."},
+                {"dEnd": 3, "dStart": 0, "section": "intro",
+                 "tEnd": 3, "tStart": 0, "text": "Background discussion sentence."},
+            ],
+            [{"dEnd": 5, "dStart": 0, "section": "title",
+              "tEnd": 20, "tStart": 16, "text": "NSCLC linked to BRAF variants."}],
+            [{"dEnd": 5, "dStart": 0, "section": "abstract",
+              "tEnd": 4, "tStart": 0, "text": "old paper text here."}],
+        ],
+        type=_TMS_TYPE,
+    )
+    return pa.table({
+        "targetId": ["ENSG1", "ENSG2", "ENSG3"],
+        "diseaseId": ["EFO_1", "EFO_2", "EFO_3"],
+        "literature": pa.array([["111"], ["222"], ["333"]], pa.list_(pa.string())),
+        "publicationDate": ["2025-01-01", "2024-12-31", "2019-01-01"],
+        "resourceScore": [3.0, 4.0, 5.0],
+        "textMiningSentences": tms,
+    })
+
+
+def test_to_cooccurrence_epmc_explodes_filters_and_tags():
+    out = cooccurrence.to_cooccurrence_epmc(
+        _epmc_raw(), start_date=datetime.date(2024, 7, 9), sections=["abstract", "title"]
+    )
+    df = out.to_pandas()
+    # 2019 row dropped by date; 'intro' sentence dropped by section
+    assert set(df["publication_id"]) == {"PMID:111", "PMID:222"}
+    assert set(df["section"]) <= {"abstract", "title"}
+    assert set(df["data_source"]) == {"open_targets"}
+    assert len(df) == 2
+    row = df[df["publication_id"] == "PMID:111"].iloc[0]
+    assert row["target"] == "ENSG1" and row["disease"] == "EFO_1"
+    assert row["text"][int(row["target_start"]):int(row["target_end"])] == "EGFR"
+    for r in df.to_dict("records"):
+        Cooccurrence(**r)  # conforms to the shared contract (extras ignored)
+
 
 def _raw_table(**overrides: list) -> pa.Table:
     columns = {
@@ -46,6 +95,7 @@ def test_to_cooccurrence_maps_gene_disease_rows():
         "publication_id",
         "publication_date",
         "section",
+        "data_source",
         "evidence_score",
         "target_start",
         "target_end",
@@ -58,6 +108,8 @@ def test_to_cooccurrence_maps_gene_disease_rows():
         Cooccurrence(**row)  # extra text_granularity key is ignored by the shared contract
     assert mapped.column("target").to_pylist() == ["ENSG00000108924", "ENSG00000117984"]
     assert mapped.column("disease").to_pylist() == ["MONDO_0004947", "MONDO_0004989"]
+    assert mapped.column("publication_id").to_pylist() == ["PMID:10023025", "PMID:10070889"]
+    assert set(mapped.column("data_source").to_pylist()) == {"open_targets"}
 
 
 @pytest.mark.parametrize(
@@ -122,6 +174,7 @@ def test_ingest_maps_and_writes_each_part_file(tmp_path):
         "publication_id",
         "publication_date",
         "section",
+        "data_source",
         "evidence_score",
         "target_start",
         "target_end",
