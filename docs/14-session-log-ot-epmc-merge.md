@@ -77,14 +77,42 @@ So the co-occurrence rows are reconstructed by **exploding
   sparse — GWAS study titles usually name the trait plus a locus/rsid rather
   than a gene symbol — but present, balancing OT's title section.
 
-## In progress / next (to append)
+## Ran it for real (final numbers)
 
-- **OT-EPMC FTP ingest** running (`data/processed/cooccurrence/`, gitignored) —
-  ~60/125 part-files at time of writing.
-- **Merge** OT + GWAS(abstract+title) → `data/processed/merged/`.
-- **Stage 4** over the merged pool (totals 47,080 / 78,691) → a
-  `sample_manifest.parquet` spanning both sources, carrying `data_source`.
-- Final row counts + coverage/spread numbers to be recorded here once done.
+- **OT-EPMC FTP ingest** → `data/processed/cooccurrence/` (125 part-files, 264 MB,
+  gitignored): **2,354,558 rows** for the 2-yr window — abstract 2,068,134 /
+  title 286,424. (A handful of OT rows carry garbage future `publicationDate`s,
+  max 2096-06-01; stage-4's `end-date <= today` filter drops them.)
+- **Network robustness fix:** the first run died at 121/125 on a transient FTP
+  `ReadTimeoutError`. Added retry-with-backoff **and resume** (skip part-files
+  already in the output dir) to `ingest_epmc_ftp`; the rerun skipped the 121 and
+  fetched the last 4 cleanly.
+- **Merge** (`merge_sources`) → `data/processed/merged/` (127 files):
+  **2,354,989 rows** = OT 2,354,558 + GWAS abstract 423 + GWAS title 8, one
+  uniform 12-column schema.
+- **Stage 4** over the merged pool (500 rows, seed 0, totals 47,080 / 78,691):
+  2,354,972 candidates → **500-row `sample_manifest.parquet`** carrying
+  `data_source`; disease coverage 0.48% (226/47,080), target coverage 0.46%
+  (359/78,691), ontology spread entropy 0.710. Sections: abstract 419 / title 81.
+  All `publication_id`s `PMID:`-prefixed.
+
+## ⚠️ Finding: a proportional random sample is ~100% Open Targets
+
+The merged pool is 2.35M rows, of which GWAS is only **431 (0.018%)**. A uniform
+500-row draw therefore expects ~0.09 GWAS rows — and indeed the manifest is
+**500 `open_targets`, 0 `gwas_catalog`**. The two sources are correctly *together*
+in one pool / schema / manifest with `data_source` provenance, but GWAS will not
+appear in a plain random sample.
+
+To actually get GWAS into the labelled (stage-5) set, pick one:
+
+1. **Always include all GWAS rows** (431) alongside the OT sample — GWAS is tiny,
+   so just label all of it plus the OT draw. Simplest guaranteed representation.
+2. **Stratified sampling by `data_source`** — docs/12 already flagged that
+   `draw_sample` is uniform-only; add a per-source quota. More principled.
+3. Leave as-is if GWAS is meant only to *expand coverage* opportunistically.
+
+Decision pending with the user; not hard-coded here.
 
 ## Points worth taking forward
 

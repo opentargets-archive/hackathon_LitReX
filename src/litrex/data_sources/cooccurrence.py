@@ -10,6 +10,7 @@ in case a future release mixes in other entity-pair types (e.g. GP-GP).
 
 import argparse
 import re
+import time
 from datetime import date
 from pathlib import Path
 
@@ -295,17 +296,34 @@ def ingest_epmc_ftp(
 
     row_counts: dict[str, int] = {}
     for name in parts:
+        if (output_dir / name).exists():  # resume: skip already-ingested parts
+            continue
         raw_path = tmp_dir / name
-        with requests.get(base_url + name, stream=True, timeout=300) as resp:
-            resp.raise_for_status()
-            with open(raw_path, "wb") as fh:
-                for chunk in resp.iter_content(chunk_size=1 << 20):
-                    fh.write(chunk)
+        _download_with_retry(base_url + name, raw_path)
         mapped = to_cooccurrence_epmc(read_raw(raw_path), start_date, sections)
         write(mapped, output_dir / name)
         raw_path.unlink()
         row_counts[name] = mapped.num_rows
     return row_counts
+
+
+def _download_with_retry(url: str, dest: Path, max_tries: int = 5) -> None:
+    """Stream a URL to ``dest``, retrying transient network errors with backoff."""
+    delay = 2.0
+    for attempt in range(1, max_tries + 1):
+        try:
+            with requests.get(url, stream=True, timeout=(30, 120)) as resp:
+                resp.raise_for_status()
+                with open(dest, "wb") as fh:
+                    for chunk in resp.iter_content(chunk_size=1 << 20):
+                        fh.write(chunk)
+            return
+        except requests.RequestException:
+            dest.unlink(missing_ok=True)  # drop the partial file before retrying
+            if attempt == max_tries:
+                raise
+            time.sleep(delay)
+            delay *= 2
 
 
 def _default_start_date() -> date:
