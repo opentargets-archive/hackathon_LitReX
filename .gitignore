@@ -219,3 +219,6 @@ __marimo__/
 
 # Pipeline data (downloaded/generated, not source)
 /data/
+
+# macOS
+.DS_Store
