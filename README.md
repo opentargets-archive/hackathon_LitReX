@@ -85,7 +85,7 @@ src/litrex/
 |---|---|---|
 | 1. Overview & architecture | [`docs/01-overview.md`](docs/01-overview.md) | Agreed |
 | 2. Cooccurrence ingestion | [`docs/02-data-source-cooccurrence.md`](docs/02-data-source-cooccurrence.md) | Built and run end-to-end ([log](docs/11-session-log-cooccurrence-ingestion.md)) |
-| 3. GWAS Catalog normalization | [`docs/03-data-source-gwas-catalog.md`](docs/03-data-source-gwas-catalog.md) | Stubbed — delegated, not yet implemented |
+| 3. GWAS Catalog normalization | [`docs/03-data-source-gwas-catalog.md`](docs/03-data-source-gwas-catalog.md) | Built and run end-to-end ([module README](src/litrex/data_sources/gwas/README.md)) |
 | 4. Representative sampling | [`docs/04-sampling.md`](docs/04-sampling.md) | Built and run end-to-end ([log](docs/12-session-log-sampling.md)) |
 | 5. LLM relationship judge | [`docs/05-llm-labelling.md`](docs/05-llm-labelling.md) | Prompt finalized; one-off 500-row labelling pass done manually — reusable `llm_client.py` API pipeline not yet built ([log](docs/13-session-log-llm-labelling.md)) |
 | 6. Classifier training | [`docs/06-classifier-training.md`](docs/06-classifier-training.md) | Not started |
