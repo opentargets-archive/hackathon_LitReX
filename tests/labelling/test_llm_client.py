@@ -1,3 +1,4 @@
+import json
 from datetime import date
 from types import SimpleNamespace
 
@@ -91,3 +92,71 @@ def test_run_writes_labeled_triples_with_evidence(tmp_path, monkeypatch):
     assert df.iloc[0]["evidence_span"] == "EGFR is amplified in NSCLC"
     # the span offsets marked the mentions in the prompt sent to the client
     assert "[[EGFR]]" in client.messages.last_kwargs["messages"][0]["content"]
+
+
+class FakeBatches:
+    """Mimics client.messages.batches for the Batch API path."""
+
+    def __init__(self, judgment: RelationJudgment):
+        self._j = judgment
+        self.created_requests = None
+
+    def create(self, requests):
+        self.created_requests = list(requests)
+        return SimpleNamespace(id="batch_test")
+
+    def retrieve(self, batch_id):
+        return SimpleNamespace(processing_status="ended")
+
+    def results(self, batch_id):
+        text = json.dumps({
+            "relation": self._j.relation,
+            "confidence": self._j.confidence,
+            "evidence_span": self._j.evidence_span,
+        })
+        # results come back in arbitrary order — key by custom_id
+        for req in reversed(self.created_requests):
+            yield SimpleNamespace(
+                custom_id=req["custom_id"],
+                result=SimpleNamespace(
+                    type="succeeded",
+                    message=SimpleNamespace(
+                        content=[SimpleNamespace(type="text", text=text)]),
+                ),
+            )
+
+
+class FakeBatchClient:
+    def __init__(self, judgment: RelationJudgment):
+        self.messages = SimpleNamespace(batches=FakeBatches(judgment))
+
+
+def test_run_batch_submits_and_reconciles(tmp_path, monkeypatch):
+    manifest = pd.DataFrame([
+        {"target": "ENSG1", "disease": "EFO_1", "text": "EGFR in NSCLC.",
+         "publication_id": "PMID:1", "publication_date": date(2024, 1, 1),
+         "section": "abstract", "data_source": "open_targets",
+         "target_start": 0, "target_end": 4, "disease_start": 8, "disease_end": 13},
+        {"target": "ENSG2", "disease": "MONDO_2", "text": "BRAF and melanoma.",
+         "publication_id": "PMID:2", "publication_date": date(2025, 1, 1),
+         "section": "title", "data_source": "gwas_catalog",
+         "target_start": 0, "target_end": 4, "disease_start": 9, "disease_end": 17},
+    ])
+    in_path = tmp_path / "sample.parquet"
+    manifest.to_parquet(in_path)
+    monkeypatch.setattr(llm_client, "target_names", lambda ids: {i: "GENE" for i in ids})
+    monkeypatch.setattr(llm_client, "disease_names", lambda ids: {i: "DISEASE" for i in ids})
+    judgment = RelationJudgment(relation="association", confidence=0.7, evidence_span="q")
+    client = FakeBatchClient(judgment)
+
+    out_path = tmp_path / "labeled.parquet"
+    rep = llm_client.run_batch(in_path, out_path, client=client, poll_interval=0)
+
+    assert rep.rows == rep.labeled == 2
+    assert rep.errors == 0
+    df = pd.read_parquet(out_path).sort_values("publication_id").reset_index(drop=True)
+    assert list(df["data_source"]) == ["open_targets", "gwas_catalog"]  # provenance kept per row
+    assert set(df["relation"]) == {"association"}
+    # each request used structured output
+    for req in client.messages.batches.created_requests:
+        assert req["params"]["output_config"]["format"]["type"] == "json_schema"

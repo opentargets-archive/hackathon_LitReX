@@ -15,16 +15,19 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import anthropic
 import pandas as pd
+from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
+from anthropic.types.messages.batch_create_params import Request
 from pydantic import BaseModel
 
 from litrex.config import settings
 from litrex.labelling.entity_names import disease_names, target_names
-from litrex.labelling.prompts import SYSTEM_PROMPT, build_prompt
+from litrex.labelling.prompts import RELATION_OUTPUT_SCHEMA, SYSTEM_PROMPT, build_prompt
 from litrex.schema import Cooccurrence, LabeledTriple
 
 logger = logging.getLogger(__name__)
@@ -112,6 +115,60 @@ class LabelReport:
     empty_evidence: int = 0
 
 
+def _triple_record(row: Cooccurrence, result: RelationJudgment) -> dict:
+    """Build the output record (LabeledTriple fields + raw evidence_span)."""
+    triple = LabeledTriple(
+        target=row.target, disease=row.disease, text=row.text,
+        relation=result.relation, confidence=result.confidence,
+        publication_id=row.publication_id, publication_date=row.publication_date,
+        data_source=row.data_source,
+    )
+    record = triple.model_dump()
+    record["evidence_span"] = result.evidence_span
+    return record
+
+
+def _finalize(rep: LabelReport, out_rows: list[dict], output_path: str | Path) -> LabelReport:
+    """Write the labelled parquet and fill the report's summary metrics."""
+    out = pd.DataFrame(out_rows)
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    out.to_parquet(output_path, index=False)
+    logger.info("wrote %d labeled triples to %s", len(out), output_path)
+    if rep.labeled:
+        rep.mean_confidence = round(float(out["confidence"].mean()), 3)
+        rep.empty_evidence = int((out["evidence_span"] == "").sum())
+    return rep
+
+
+def _prepare(df: pd.DataFrame) -> list[tuple[str, Cooccurrence, str]]:
+    """Resolve names and build the judge prompt per row.
+
+    Returns (custom_id, row, user_prompt) tuples. ``custom_id`` is stable
+    (``row-<i>``) so batch results can be keyed back to their manifest row.
+    """
+    id_to_target = target_names(sorted(df["target"].astype(str).unique()))
+    id_to_disease = disease_names(sorted(df["disease"].astype(str).unique()))
+    prepared: list[tuple[str, Cooccurrence, str]] = []
+    for i, raw in enumerate(df.to_dict("records")):
+        tspan = _span(raw, "target_start", "target_end")
+        dspan = _span(raw, "disease_start", "disease_end")
+        row = Cooccurrence(**raw)  # extra span columns dropped by extra='ignore'
+        prompt = build_prompt(
+            id_to_target[row.target], id_to_disease[row.disease], row.text, tspan, dspan
+        )
+        prepared.append((f"row-{i}", row, prompt))
+    return prepared
+
+
+def _judge_prompt(client: anthropic.Anthropic, user_prompt: str, model: str) -> RelationJudgment:
+    response = client.messages.parse(
+        model=model, max_tokens=1024, system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_prompt}],
+        output_format=RelationJudgment,
+    )
+    return response.parsed_output
+
+
 def run(
     input_path: str | Path,
     output_path: str | Path,
@@ -167,6 +224,70 @@ def run(
     return rep
 
 
+def run_batch(
+    input_path: str | Path,
+    output_path: str | Path,
+    client: anthropic.Anthropic | None = None,
+    limit: int | None = None,
+    model: str | None = None,
+    poll_interval: float = 30.0,
+) -> LabelReport:
+    """Label the sample via the Anthropic Batch API (50% cheaper, async).
+
+    Submits one batch of structured-output requests, polls until it ends, then
+    reconciles results by ``custom_id``. Same output/report as :func:`run`.
+    """
+    client = client or anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    df = pd.read_parquet(input_path)
+    if limit is not None:
+        df = df.head(limit)
+    model = model or settings.anthropic_model
+
+    prepared = _prepare(df)
+    rows_by_id = {cid: row for cid, row, _ in prepared}
+    requests = [
+        Request(
+            custom_id=cid,
+            params=MessageCreateParamsNonStreaming(
+                model=model, max_tokens=1024, system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}],
+                output_config={"format": {"type": "json_schema", "schema": RELATION_OUTPUT_SCHEMA}},
+            ),
+        )
+        for cid, _, prompt in prepared
+    ]
+
+    batch = client.messages.batches.create(requests=requests)
+    logger.info("submitted batch %s (%d requests)", batch.id, len(requests))
+    while True:
+        status = client.messages.batches.retrieve(batch.id).processing_status
+        if status == "ended":
+            break
+        logger.info("batch %s: %s (poll %.0fs)", batch.id, status, poll_interval)
+        time.sleep(poll_interval)
+
+    rep = LabelReport(rows=len(df))
+    out_rows: list[dict] = []
+    for result in client.messages.batches.results(batch.id):
+        row = rows_by_id.get(result.custom_id)
+        if row is None:
+            continue
+        if result.result.type != "succeeded":
+            logger.error("batch item %s failed: %s", result.custom_id, result.result.type)
+            rep.errors += 1
+            continue
+        try:
+            text = next(b.text for b in result.result.message.content if b.type == "text")
+            judgment = RelationJudgment(**json.loads(text))
+        except Exception as exc:
+            logger.error("batch item %s parse failed: %s", result.custom_id, exc)
+            rep.errors += 1
+            continue
+        out_rows.append(_triple_record(row, judgment))
+        rep.labeled += 1
+    return _finalize(rep, out_rows, output_path)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Stage 5: LLM relationship-judge labelling.")
     parser.add_argument("--input", type=Path,
@@ -176,10 +297,19 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--limit", type=int, default=None, help="Label only the first N rows.")
     parser.add_argument("--model", type=str, default=None,
                         help="Override settings.anthropic_model.")
+    parser.add_argument("--batch", action="store_true",
+                        help="Use the Anthropic Batch API (async, 50%% cheaper) instead of "
+                             "synchronous per-row calls.")
+    parser.add_argument("--poll-interval", type=float, default=30.0,
+                        help="Seconds between batch status polls (with --batch).")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    rep = run(args.input, args.output, limit=args.limit, model=args.model)
+    if args.batch:
+        rep = run_batch(args.input, args.output, limit=args.limit, model=args.model,
+                        poll_interval=args.poll_interval)
+    else:
+        rep = run(args.input, args.output, limit=args.limit, model=args.model)
     print(json.dumps(asdict(rep), indent=2))
 
 
