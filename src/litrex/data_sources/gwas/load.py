@@ -1,10 +1,12 @@
 """Load and normalize GWAS Catalog association rows into Association records."""
 from __future__ import annotations
+
+import logging
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Iterator
-import logging
+
 import pandas as pd
 
 logger = logging.getLogger(__name__)

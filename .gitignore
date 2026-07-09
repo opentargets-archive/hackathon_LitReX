@@ -217,5 +217,9 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# generated data (never push)
-data/
+# Pipeline data (downloaded/generated, not source)
+/data/
+
+# litrex_gwas runtime caches/outputs
+.cache/
+output/

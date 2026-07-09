@@ -20,8 +20,10 @@ PySpark pipelines). Already contains:
 - (likely) PMID/PMCID or similar publication identifier — needed later for
   the "found in other datasources" cross-reference in stage 8
 
-The exact upstream location/format (S3/GCS path, partitioning scheme,
-release version) is an open question — see [10-open-questions.md](10-open-questions.md).
+Resolved: `gs://open-targets-pipeline-runs/ds/26.06.0-dev2/intermediate/literature/cooccurrence`
+— 40 flat Parquet part-files (no Hive partitioning), ~11GB. See
+[11-session-log-cooccurrence-ingestion.md](11-session-log-cooccurrence-ingestion.md)
+for the implementation and what's been run.
 
 ## Output contract
 

@@ -1,19 +1,21 @@
 """Orchestrate the GWAS co-occurrence pipeline and write Parquet output."""
 from __future__ import annotations
-from dataclasses import dataclass, field, asdict
-from datetime import date
-from pathlib import Path
+
 import argparse
 import json
 import logging
+from dataclasses import asdict, dataclass, field
+from datetime import date
+from pathlib import Path
+
 import pandas as pd
 
-from .config import Config, load_config, compute_cutoff
-from .load import read_associations, Association
-from .disease_index import download_disease_index, load_disease_index, DiseaseIndex
 from .abstracts import load_or_fetch_abstracts
+from .config import Config, compute_cutoff, load_config
+from .cooccurrence import DropStats, GwasCooccurrence, build_cooccurrences
+from .disease_index import DiseaseIndex, download_disease_index, load_disease_index
 from .fulltext import load_or_fetch_fulltext
-from .cooccurrence import build_cooccurrences, Cooccurrence, DropStats
+from .load import Association, read_associations
 
 logger = logging.getLogger(__name__)
 
@@ -82,14 +84,8 @@ def _write_reconciliation_log(path: Path, recs: dict[str, tuple[str, str]],
     logger.info("wrote %d name-reconciled disease mappings to %s", len(rows), path)
 
 
-def cooccurrences_to_frame(rows: list[Cooccurrence]) -> pd.DataFrame:
-    records = []
-    for r in rows:
-        d = asdict(r)
-        d["target_span"] = list(r.target_span)
-        d["disease_span"] = list(r.disease_span)
-        records.append(d)
-    return pd.DataFrame.from_records(records)
+def cooccurrences_to_frame(rows: list[GwasCooccurrence]) -> pd.DataFrame:
+    return pd.DataFrame.from_records([asdict(r) for r in rows])
 
 
 def _build_pairs(cfg: Config, today: date, idx: DiseaseIndex):
@@ -144,7 +140,7 @@ def _match_and_write(cfg: Config, by_pmid: dict[str, list[Association]], idx: Di
         papers_with_text=len(texts),
     )
 
-    all_rows: list[Cooccurrence] = []
+    all_rows: list[GwasCooccurrence] = []
     totals = DropStats()
     for pmid, assocs in by_pmid.items():
         text = texts.get(pmid)
@@ -157,7 +153,7 @@ def _match_and_write(cfg: Config, by_pmid: dict[str, list[Association]], idx: Di
 
     rep.cooccurrences = len(all_rows)
     for r in all_rows:
-        rep.by_level[r.cooccurrence_level] = rep.by_level.get(r.cooccurrence_level, 0) + 1
+        rep.by_level[r.text_granularity] = rep.by_level.get(r.text_granularity, 0) + 1
         rep.by_match_type[r.match_type] = rep.by_match_type.get(r.match_type, 0) + 1
     rep.drops = vars(totals)
 
@@ -180,22 +176,20 @@ def run(cfg: Config, today: date, source: str = "both") -> dict[str, Report]:
     return reports
 
 
-def _pair_id(row) -> tuple:
-    """Identity of a (target, disease) pair for cross-corpus comparison."""
-    tgt = row["target_ensembl"] or row["target_rsid"] or (
-        row["target_symbol"][0] if len(row["target_symbol"]) else "")
-    return (row["publication_id"], tgt, row["disease"])
+def _pair_ids(df: pd.DataFrame) -> set:
+    """Identity of each (paper, target, disease) pair for cross-corpus comparison."""
+    return set(zip(df["publication_id"], df["target"], df["disease"]))
 
 
 def compare_corpora(cfg: Config) -> dict:
     """Compare abstract vs fulltext outputs (must both exist). Returns a stats dict."""
     dfs = {s: pd.read_parquet(_output_path(cfg.output_path, s)) for s in SOURCES}
-    pairs = {s: {_pair_id(r) for _, r in df.iterrows()} for s, df in dfs.items()}
+    pairs = {s: _pair_ids(df) for s, df in dfs.items()}
     ab, ft = pairs["abstract"], pairs["fulltext"]
     return {
         "cooccurrences": {s: len(df) for s, df in dfs.items()},
         "papers_covered": {s: df["publication_id"].nunique() for s, df in dfs.items()},
-        "sentence_level": {s: int((df["cooccurrence_level"] == "sentence").sum())
+        "sentence_level": {s: int((df["text_granularity"] == "sentence").sum())
                            for s, df in dfs.items()},
         "unique_pairs": {s: len(p) for s, p in pairs.items()},
         "pairs_shared": len(ab & ft),

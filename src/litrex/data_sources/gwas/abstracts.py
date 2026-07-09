@@ -1,10 +1,13 @@
 """Fetch and cache paper abstracts by PMID (Europe PMC + PubMed fallback)."""
 from __future__ import annotations
-from pathlib import Path
+
 import logging
 import time
+from pathlib import Path
+
 import pandas as pd
 import requests
+
 # defusedxml guards against XXE / billion-laughs in the external PubMed XML.
 from defusedxml import ElementTree as ET
 

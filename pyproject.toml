@@ -1,10 +1,18 @@
 [project]
-name = "litrex-gwas"
+name = "litrex"
 version = "0.1.0"
-requires-python = ">=3.10"
+description = "Biomedical target-disease relation extraction from literature."
+authors = [
+    { name = "vivienho", email = "56025826+vivienho@users.noreply.github.com" }
+]
+requires-python = ">=3.11"
 dependencies = [
+    "anthropic>=0.116.0",
+    "pyarrow>=24.0.0",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.2",
+    # GWAS Catalog data source (stage 3)
     "pandas>=2.0",
-    "pyarrow>=14",
     "requests>=2.31",
     "pysbd>=0.3.4",
     "pyyaml>=6",
@@ -12,15 +20,32 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+training = [
+    "datasets>=5.0.0",
+    "scikit-learn>=1.9.0",
+    "torch>=2.12.1",
+    "transformers>=5.13.0",
+]
+spark = [
+    "pyspark>=4.1.2",
+]
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.11.14,<0.12.0"]
+build-backend = "uv_build"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/litrex_gwas"]
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.15.20",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
 testpaths = ["tests"]

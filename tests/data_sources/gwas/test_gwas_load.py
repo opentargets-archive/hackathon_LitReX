@@ -1,6 +1,7 @@
 from datetime import date
 from pathlib import Path
-from litrex_gwas.load import strip_trait_id, parse_symbols, read_associations
+
+from litrex.data_sources.gwas.load import parse_symbols, read_associations, strip_trait_id
 
 FIX = Path(__file__).parent / "fixtures" / "mini_assoc.tsv"
 

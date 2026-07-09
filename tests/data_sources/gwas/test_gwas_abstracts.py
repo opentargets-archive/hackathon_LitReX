@@ -1,5 +1,6 @@
 import requests
-from litrex_gwas.abstracts import fetch_abstract_europepmc
+
+from litrex.data_sources.gwas.abstracts import fetch_abstract_europepmc
 
 
 class FakeResp:

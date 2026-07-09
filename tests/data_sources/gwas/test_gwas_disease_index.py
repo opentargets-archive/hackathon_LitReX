@@ -1,6 +1,8 @@
 from pathlib import Path
+
 import pandas as pd
-from litrex_gwas.disease_index import load_disease_index
+
+from litrex.data_sources.gwas.disease_index import load_disease_index
 
 
 def _make_fixture(p: Path):

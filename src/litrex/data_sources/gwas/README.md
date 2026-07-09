@@ -1,4 +1,4 @@
-# litrex_gwas — GWAS Catalog → target–disease co-occurrences
+# litrex.data_sources.gwas — GWAS Catalog → target–disease co-occurrences
 
 Builds a silver training set of **target–disease textual co-occurrences** from
 the papers behind recent GWAS Catalog associations, for LitReX's downstream
@@ -14,7 +14,7 @@ See the design spec: `docs/superpowers/specs/2026-07-09-gwas-cooccurrence-design
 ```bash
 uv sync --extra dev
 # both corpora + comparison (default); or --source abstract | fulltext
-uv run python -m litrex_gwas.build --config config/gwas.yaml --today 2026-07-09 --source both
+uv run python -m litrex.data_sources.gwas.build --config config/gwas.yaml --today 2026-07-09 --source both
 ```
 
 Writes one Parquet per corpus — `output/gwas_cooccurrence_abstract.parquet` and

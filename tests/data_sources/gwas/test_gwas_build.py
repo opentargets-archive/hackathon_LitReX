@@ -1,9 +1,11 @@
 from datetime import date
 from pathlib import Path
+
 import pandas as pd
-import litrex_gwas.build as build
-from litrex_gwas.config import Config
-from litrex_gwas.disease_index import DiseaseIndex, DiseaseTerm
+
+import litrex.data_sources.gwas.build as build
+from litrex.data_sources.gwas.config import Config
+from litrex.data_sources.gwas.disease_index import DiseaseIndex, DiseaseTerm
 
 FIX = Path(__file__).parent / "fixtures"
 

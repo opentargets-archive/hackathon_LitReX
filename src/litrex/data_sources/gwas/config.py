@@ -1,8 +1,10 @@
 """Configuration loading for the GWAS co-occurrence module."""
 from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+
 import yaml
 
 

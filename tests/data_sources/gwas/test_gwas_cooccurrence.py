@@ -1,9 +1,13 @@
 from datetime import date
-from litrex_gwas.load import Association
-from litrex_gwas.disease_index import DiseaseIndex, DiseaseTerm
-from litrex_gwas.cooccurrence import (
-    split_sentences, find_target, find_disease, build_cooccurrences,
+
+from litrex.data_sources.gwas.cooccurrence import (
+    build_cooccurrences,
+    find_disease,
+    find_target,
+    split_sentences,
 )
+from litrex.data_sources.gwas.disease_index import DiseaseIndex, DiseaseTerm
+from litrex.data_sources.gwas.load import Association
 
 
 class Cfg:
@@ -19,7 +23,9 @@ def _assoc(**kw):
     return Association(**base)
 
 
-IDX = DiseaseIndex(terms={"EFO_0000270": DiseaseTerm("EFO_0000270", "asthma", ["bronchial asthma"])})
+IDX = DiseaseIndex(
+    terms={"EFO_0000270": DiseaseTerm("EFO_0000270", "asthma", ["bronchial asthma"])}
+)
 
 
 def test_split_sentences():
@@ -47,14 +53,15 @@ def test_build_sentence_level():
     rows, drops = build_cooccurrences([_assoc()], abstract, IDX, Cfg(), "abstract")
     assert len(rows) == 1
     r = rows[0]
-    assert r.cooccurrence_level == "sentence"
+    assert r.text_granularity == "sentence"
     assert r.text_source == "abstract"
+    assert r.section == "abstract"
     assert r.match_type == "symbol"
     assert r.disease == "EFO_0000270"
     assert "asthma" in r.text.lower()
     # spans point at the matched substrings within text
-    assert r.text[r.target_span[0]:r.target_span[1]] == "IL6"
-    assert r.text[r.disease_span[0]:r.disease_span[1]].lower() == "asthma"
+    assert r.text[r.target_start:r.target_end] == "IL6"
+    assert r.text[r.disease_start:r.disease_end].lower() == "asthma"
 
 
 def test_build_document_level_fallback():
@@ -62,11 +69,12 @@ def test_build_document_level_fallback():
     rows, drops = build_cooccurrences([_assoc()], doc, IDX, Cfg(), "fulltext")
     assert len(rows) == 1
     r = rows[0]
-    assert r.cooccurrence_level == "document"
+    assert r.text_granularity == "document"
     assert r.text_source == "fulltext"
-    assert "[...]" in r.text                       # bounded target-sent + disease-sent
-    assert r.text[r.target_span[0]:r.target_span[1]] == "IL6"
-    assert r.text[r.disease_span[0]:r.disease_span[1]].lower() == "asthma"
+    assert r.section == "body"                      # fulltext maps to the body section
+    assert "[...]" in r.text                        # bounded target-sent + disease-sent
+    assert r.text[r.target_start:r.target_end] == "IL6"
+    assert r.text[r.disease_start:r.disease_end].lower() == "asthma"
 
 
 def test_build_drops_when_absent():

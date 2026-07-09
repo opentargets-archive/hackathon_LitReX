@@ -1,8 +1,10 @@
 """Open Targets disease index: download, load, and membership/synonym lookup."""
 from __future__ import annotations
+
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-import logging
+
 import pandas as pd
 import requests
 

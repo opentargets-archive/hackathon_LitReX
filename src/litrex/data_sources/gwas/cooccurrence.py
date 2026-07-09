@@ -1,13 +1,15 @@
 """Match GWAS (target, disease) pairs against paper text to emit co-occurrences."""
 from __future__ import annotations
-from dataclasses import dataclass
-from datetime import date
+
 import logging
 import re
+from dataclasses import dataclass
+from datetime import date
+
 import pysbd
 
-from .load import Association
 from .disease_index import DiseaseIndex
+from .load import Association
 
 logger = logging.getLogger(__name__)
 _SEG = pysbd.Segmenter(language="en", clean=False)
@@ -65,23 +67,35 @@ _DOC_SEP = " [...] "
 
 
 @dataclass
-class Cooccurrence:
-    target: str | None
+class GwasCooccurrence:
+    """A GWAS-derived target-disease co-occurrence.
+
+    The first six fields are the pipeline-wide ``litrex.schema.Cooccurrence``
+    contract. Span/granularity columns mirror the ``litrex`` cooccurrence data
+    source (``target_start`` etc.) so both sources share one schema; the
+    remaining columns are GWAS-specific provenance for training.
+    """
+    # --- core contract (litrex.schema.Cooccurrence) ---
+    target: str                     # canonical non-null id: Ensembl, else rsid, else symbol
+    disease: str                    # EFO/MONDO/HP ontology id
+    text: str                       # co-occurring sentence, or target-sent [...] disease-sent
+    publication_id: str
+    publication_date: date
+    section: str                    # document section: "abstract" | "body"
+    # --- span/granularity (matches litrex cooccurrence source) ---
+    target_start: int
+    target_end: int
+    disease_start: int
+    disease_end: int
+    text_granularity: str           # "sentence" (stronger) | "document" (weaker)
+    # --- GWAS provenance / training extras ---
+    text_source: str                # "abstract" | "fulltext"
     target_ensembl: str | None
     target_symbol: list[str]
     target_rsid: str
     match_type: str
     matched_alias: str
-    disease: str
     disease_label: str
-    text: str                       # co-occurring sentence, or target-sent [...] disease-sent
-    text_source: str                # "abstract" | "fulltext"
-    cooccurrence_level: str         # "sentence" (stronger) | "document" (weaker)
-    target_span: tuple[int, int]    # char offsets within `text`
-    disease_span: tuple[int, int]
-    section: str                    # document section (= text_source in v1)
-    publication_id: str
-    publication_date: date
     source: str
     snp: str
     p_value: str
@@ -109,15 +123,17 @@ def _first(sentences, fn):
 
 
 def build_cooccurrences(assocs: list[Association], document: str, idx: DiseaseIndex,
-                        cfg, text_source: str) -> tuple[list[Cooccurrence], DropStats]:
+                        cfg, text_source: str) -> tuple[list[GwasCooccurrence], DropStats]:
     """Emit co-occurrence rows for a paper's unique (target, disease) pairs.
 
     Sentence-level match preferred; document-level fallback (target sentence +
     disease sentence, joined) otherwise; else dropped and counted. ``text_source``
-    labels the corpus ("abstract" | "fulltext").
+    labels the corpus ("abstract" | "fulltext"); ``section`` is the document
+    section it maps to ("abstract" | "body").
     """
+    section = "abstract" if text_source == "abstract" else "body"
     drops = DropStats()
-    out: list[Cooccurrence] = []
+    out: list[GwasCooccurrence] = []
     seen: set[tuple] = set()
     sentences = split_sentences(document)
     for a in assocs:
@@ -161,14 +177,25 @@ def build_cooccurrences(assocs: list[Association], document: str, idx: DiseaseIn
             dspan = (md[1][0] + off, md[1][1] + off)
             level = "document"
 
-        out.append(Cooccurrence(
-            target=a.target_ensembl, target_ensembl=a.target_ensembl,
-            target_symbol=a.target_symbols, target_rsid=a.target_rsid,
+        canonical_target = a.target_ensembl or a.target_rsid or (
+            a.target_symbols[0] if a.target_symbols else malias)
+        out.append(GwasCooccurrence(
+            target=canonical_target,
+            disease=a.disease_id,
+            text=text,
+            publication_id=a.pmid,
+            publication_date=a.date,
+            section=section,
+            target_start=tspan[0], target_end=tspan[1],
+            disease_start=dspan[0], disease_end=dspan[1],
+            text_granularity=level,
+            text_source=text_source,
+            target_ensembl=a.target_ensembl,
+            target_symbol=a.target_symbols,
+            target_rsid=a.target_rsid,
             match_type=mtype, matched_alias=malias,
-            disease=a.disease_id, disease_label=a.disease_label,
-            text=text, text_source=text_source, cooccurrence_level=level,
-            target_span=tspan, disease_span=dspan, section=text_source,
-            publication_id=a.pmid, publication_date=a.date, source="gwas_catalog",
+            disease_label=a.disease_label,
+            source="gwas_catalog",
             snp=a.snp, p_value=a.p_value,
         ))
     return out, drops
