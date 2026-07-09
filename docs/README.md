@@ -23,6 +23,7 @@ for the scaffolding that will be created once this plan is agreed.
 | 10 | [10-open-questions.md](10-open-questions.md) | Tracking | Outstanding decisions |
 | 11 | [11-session-log-cooccurrence-ingestion.md](11-session-log-cooccurrence-ingestion.md) | Session log | What's been implemented/run for stage 2, and follow-ups |
 | 12 | [12-session-log-sampling.md](12-session-log-sampling.md) | Session log | What's been implemented/run for stage 4, and follow-ups |
+| 13 | [13-session-log-llm-labelling.md](13-session-log-llm-labelling.md) | Session log | What's been implemented/run for stage 5, and follow-ups |
 
 ## Ownership split
 
