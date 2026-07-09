@@ -61,7 +61,7 @@ DEFAULT_CACHE_PATH = Path("data/cache/efo_graph_cache.json")
 GraphFetcher = Callable[[str], list[str]]
 
 
-def _candidate_iris(disease_id: str) -> list[str]:
+def candidate_iris(disease_id: str) -> list[str]:
     if disease_id.startswith("EFO_"):
         return [
             f"http://www.ebi.ac.uk/efo/{disease_id}",
@@ -125,7 +125,7 @@ def resolve_therapeutic_area(
     if disease_id.startswith("HP_"):
         return PHENOTYPE_HP
 
-    for start_iri in _candidate_iris(disease_id):
+    for start_iri in candidate_iris(disease_id):
         path = [start_iri]
         node = start_iri
         reached_root = False

@@ -37,6 +37,13 @@ delete resolved items or move their resolution into the relevant stage doc.
 - **Platform totals**: 47,080 diseases / 78,691 targets, supplied by the
   user, stored in a local (gitignored) `.env`. See
   [12-session-log-sampling.md](12-session-log-sampling.md).
+- **LLM output format**: structured JSON (`relation`, `confidence`,
+  `evidence_span`) via a fixed schema, not plain text. See
+  [13-session-log-llm-labelling.md](13-session-log-llm-labelling.md).
+- **Relation taxonomy at labelling time**: stage 5 does **not** classify —
+  `relation` is a free-text description in the model's own words;
+  classification into a taxonomy is explicitly deferred to stage 6. See
+  [13-session-log-llm-labelling.md](13-session-log-llm-labelling.md).
 
 ## Still open
 
@@ -52,8 +59,15 @@ delete resolved items or move their resolution into the relevant stage doc.
 - **Base classifier model**: PubMedBERT vs. BioBERT vs. other — decide
   after seeing stage 5's labelled data (see
   [06-classifier-training.md](06-classifier-training.md)).
-- **LLM output format**: plain text vs. structured/tool-call output for
-  parsing `relation`/`confidence` reliably (see
-  [05-llm-labelling.md](05-llm-labelling.md)).
+- **`llm_client.py` (real Anthropic API pipeline)**: not built this
+  session — stage 5's 500-row pass was done via a one-off sub-agent labelling
+  run instead (user chose to avoid provisioning a separate API key). A real,
+  rerunnable client is still needed before the eventual larger GWAS-merged
+  rerun. See [13-session-log-llm-labelling.md](13-session-log-llm-labelling.md).
+- **Entity-linking noise in labelled rows**: several rows show
+  disease-label acronym collisions or bracketed-span mismatches between the
+  stage-2 offsets and the actual entity discussed — flagged anecdotally by
+  the labelling pass but not yet systematically audited. See
+  [13-session-log-llm-labelling.md](13-session-log-llm-labelling.md).
 - **Evidence score formula**: not designed yet, deferred until stage 7
   output exists (see [08-product-vision.md](08-product-vision.md)).
