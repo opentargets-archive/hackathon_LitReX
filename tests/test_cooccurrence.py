@@ -44,23 +44,32 @@ def test_find_disease_phrase():
 
 def test_build_sentence_level():
     abstract = "IL6 variants are associated with asthma in this cohort. Unrelated sentence."
-    rows, drops = build_cooccurrences([_assoc()], abstract, IDX, Cfg())
+    rows, drops = build_cooccurrences([_assoc()], abstract, IDX, Cfg(), "abstract")
     assert len(rows) == 1
     r = rows[0]
     assert r.cooccurrence_level == "sentence"
+    assert r.text_source == "abstract"
     assert r.match_type == "symbol"
     assert r.disease == "EFO_0000270"
     assert "asthma" in r.text.lower()
+    # spans point at the matched substrings within text
+    assert r.text[r.target_span[0]:r.target_span[1]] == "IL6"
+    assert r.text[r.disease_span[0]:r.disease_span[1]].lower() == "asthma"
 
 
-def test_build_abstract_level_fallback():
-    abstract = "IL6 is studied here. A separate line mentions asthma prevalence."
-    rows, drops = build_cooccurrences([_assoc()], abstract, IDX, Cfg())
+def test_build_document_level_fallback():
+    doc = "IL6 is studied here. A separate line mentions asthma prevalence."
+    rows, drops = build_cooccurrences([_assoc()], doc, IDX, Cfg(), "fulltext")
     assert len(rows) == 1
-    assert rows[0].cooccurrence_level == "abstract"
+    r = rows[0]
+    assert r.cooccurrence_level == "document"
+    assert r.text_source == "fulltext"
+    assert "[...]" in r.text                       # bounded target-sent + disease-sent
+    assert r.text[r.target_span[0]:r.target_span[1]] == "IL6"
+    assert r.text[r.disease_span[0]:r.disease_span[1]].lower() == "asthma"
 
 
 def test_build_drops_when_absent():
-    rows, drops = build_cooccurrences([_assoc()], "No relevant terms here.", IDX, Cfg())
+    rows, drops = build_cooccurrences([_assoc()], "No relevant terms here.", IDX, Cfg(), "abstract")
     assert rows == []
     assert drops.no_target_in_text + drops.no_disease_in_text + drops.no_cooccurrence >= 1

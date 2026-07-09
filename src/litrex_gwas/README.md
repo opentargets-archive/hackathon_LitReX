@@ -13,12 +13,21 @@ See the design spec: `docs/superpowers/specs/2026-07-09-gwas-cooccurrence-design
 
 ```bash
 uv sync --extra dev
-uv run python -m litrex_gwas.build --config config/gwas.yaml --today 2026-07-09
+# both corpora + comparison (default); or --source abstract | fulltext
+uv run python -m litrex_gwas.build --config config/gwas.yaml --today 2026-07-09 --source both
 ```
 
+Writes one Parquet per corpus — `output/gwas_cooccurrence_abstract.parquet` and
+`…_fulltext.parquet` — and prints a per-source report plus a `comparison` block.
 Edit `config/gwas.yaml` for input paths, the rolling window (`window_years`),
-matching thresholds, and the output path. The OT disease index (~7 MB) and the
-fetched abstracts are cached under `.cache/` so re-runs skip the network.
+matching thresholds, and disease-cleanup flags. The OT disease index (~7 MB),
+abstracts, and full text are cached under `.cache/` so re-runs skip the network.
+
+**Text sources.** `abstract` mines the PMID's abstract (Europe PMC → PubMed
+fallback). `fulltext` mines Europe PMC open-access full text (JATS → plain
+text), available for the OA subset only (~180/240 papers here). The two are
+complementary — full text finds far more, but non-OA papers are abstract-only —
+so the recommended training set is the **union** of both outputs.
 
 ## Pipeline
 
@@ -78,6 +87,23 @@ those traits rarely co-occurred in abstracts anyway. Output is now disease-only
 `rs7529220` + "atrial fibrillation"; `PLEC` + "Alzheimer's disease" — spans land
 on the right substrings).
 
+## Abstract vs full text (`--source both`)
+
+| metric | abstract | full text |
+|---|--:|--:|
+| co-occurrences | 423 | **2,552** |
+| unique (target, disease) pairs | 346 | **1,465** |
+| sentence-level (high-confidence) | 99 | **568** |
+| papers with ≥1 hit | 118 | 146 |
+| papers with text available | 390 | 180 (OA only) |
+
+Cross-corpus: **252 pairs shared, 1,213 full-text-only, 94 abstract-only.** Full
+text yields ~4× the unique pairs and ~6× the sentence-level co-occurrences, but
+the 94 abstract-only pairs come from non-OA papers that have no full text — so
+neither source dominates and the union is the right training set. Full-text
+sentence-level spot-checks are clean (e.g. `ABCG2` + gout, `APOE` + liver
+disease).
+
 ## Known limitations / v1 notes
 
 - **The OT disease index is broader than "diseases"** — it includes OBA
@@ -90,6 +116,13 @@ on the right substrings).
   trait name matches an OT disease name/synonym verbatim (18 IDs this run). IDs
   with no in-index key and no exact-name match are still dropped (8k rows, ~1.5%);
   fuzzy/xref-based mapping is a possible v2 (this is what OnToma would do).
+- **GO terms leak (~0.4%)** — 11 full-text co-occurrences map to GO biological
+  processes, which sit in the OT disease index and are not measurement-tagged.
+  Add `GO` to an ontology-prefix exclusion if disease-only purity matters.
+- **Full-text matching is slow** (~30 min for 180 papers) — PySBD sentence
+  segmentation over whole papers, ×many pairs. Fine for a one-off silver-set
+  build (cached afterwards); would need optimizing (e.g. per-paper alias index)
+  for repeated runs.
 - **Ensembl IDs essentially never appear in abstract text** (1 match). Symbols
   and rs IDs carry the signal, as expected — the cascade handles this.
 - **Abstract-level dominates** (338 vs 107). Only abstracts are mined in v1;

@@ -61,6 +61,9 @@ def find_disease(text: str, synonyms: list[str], min_len: int):
     return None
 
 
+_DOC_SEP = " [...] "
+
+
 @dataclass
 class Cooccurrence:
     target: str | None
@@ -71,12 +74,12 @@ class Cooccurrence:
     matched_alias: str
     disease: str
     disease_label: str
-    text: str
-    abstract: str
-    cooccurrence_level: str
-    target_span: tuple[int, int]
+    text: str                       # co-occurring sentence, or target-sent [...] disease-sent
+    text_source: str                # "abstract" | "fulltext"
+    cooccurrence_level: str         # "sentence" (stronger) | "document" (weaker)
+    target_span: tuple[int, int]    # char offsets within `text`
     disease_span: tuple[int, int]
-    section: str
+    section: str                    # document section (= text_source in v1)
     publication_id: str
     publication_date: date
     source: str
@@ -96,16 +99,27 @@ def _pair_key(a: Association) -> tuple:
     return (a.disease_id, a.target_ensembl, tuple(a.target_symbols), a.target_rsid)
 
 
-def build_cooccurrences(assocs: list[Association], abstract: str,
-                        idx: DiseaseIndex, cfg) -> tuple[list[Cooccurrence], DropStats]:
+def _first(sentences, fn):
+    """Return (sentence, match) for the first sentence where fn(sentence) hits."""
+    for sent in sentences:
+        m = fn(sent)
+        if m:
+            return sent, m
+    return None, None
+
+
+def build_cooccurrences(assocs: list[Association], document: str, idx: DiseaseIndex,
+                        cfg, text_source: str) -> tuple[list[Cooccurrence], DropStats]:
     """Emit co-occurrence rows for a paper's unique (target, disease) pairs.
 
-    Sentence-level match preferred; abstract-level fallback; else dropped/counted.
+    Sentence-level match preferred; document-level fallback (target sentence +
+    disease sentence, joined) otherwise; else dropped and counted. ``text_source``
+    labels the corpus ("abstract" | "fulltext").
     """
     drops = DropStats()
     out: list[Cooccurrence] = []
     seen: set[tuple] = set()
-    sentences = split_sentences(abstract)
+    sentences = split_sentences(document)
     for a in assocs:
         key = _pair_key(a)
         if key in seen:
@@ -115,36 +129,45 @@ def build_cooccurrences(assocs: list[Association], abstract: str,
         if not syns:
             drops.no_disease_syn += 1
             continue
-        # sentence-level
-        hit = None
+
+        # sentence-level: target and disease in the same sentence
+        text = mtype = malias = tspan = dspan = level = None
         for sent in sentences:
             mt = find_target(sent, a, cfg.min_symbol_len)
             md = find_disease(sent, syns, cfg.min_disease_syn_len)
             if mt and md:
-                hit = (sent, mt, md, "sentence")
+                text = sent
+                mtype, malias, tspan = mt
+                dspan = md[1]
+                level = "sentence"
                 break
-        if hit is None:
-            # abstract-level fallback
-            mt = find_target(abstract, a, cfg.min_symbol_len)
-            md = find_disease(abstract, syns, cfg.min_disease_syn_len)
-            if not mt and not md:
+
+        if level is None:
+            # document-level: target in one sentence, disease in another
+            tsent, mt = _first(sentences, lambda s: find_target(s, a, cfg.min_symbol_len))
+            dsent, md = _first(sentences, lambda s: find_disease(s, syns, cfg.min_disease_syn_len))
+            if mt is None and md is None:
                 drops.no_cooccurrence += 1
                 continue
-            if not mt:
+            if mt is None:
                 drops.no_target_in_text += 1
                 continue
-            if not md:
+            if md is None:
                 drops.no_disease_in_text += 1
                 continue
-            hit = (abstract, mt, md, "abstract")
-        text, (mtype, malias, tspan), (dalias, dspan), level = hit
+            text = tsent + _DOC_SEP + dsent
+            mtype, malias, tspan = mt
+            off = len(tsent) + len(_DOC_SEP)
+            dspan = (md[1][0] + off, md[1][1] + off)
+            level = "document"
+
         out.append(Cooccurrence(
             target=a.target_ensembl, target_ensembl=a.target_ensembl,
             target_symbol=a.target_symbols, target_rsid=a.target_rsid,
             match_type=mtype, matched_alias=malias,
             disease=a.disease_id, disease_label=a.disease_label,
-            text=text, abstract=abstract, cooccurrence_level=level,
-            target_span=tspan, disease_span=dspan, section="abstract",
+            text=text, text_source=text_source, cooccurrence_level=level,
+            target_span=tspan, disease_span=dspan, section=text_source,
             publication_id=a.pmid, publication_date=a.date, source="gwas_catalog",
             snp=a.snp, p_value=a.p_value,
         ))
