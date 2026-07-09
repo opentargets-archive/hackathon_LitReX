@@ -24,12 +24,13 @@ delete resolved items or move their resolution into the relevant stage doc.
 - **LLM provider**: Claude via the Anthropic API.
 - **Repo structure**: separate `data_sources/` modules per source (see
   [09-repo-structure.md](09-repo-structure.md)).
+- **Exact upstream Cooccurrence source**: `gs://open-targets-pipeline-runs/ds/26.06.0-dev2/intermediate/literature/cooccurrence`,
+  40 flat Parquet part-files, ~11GB, read directly with pyarrow (no Spark
+  cluster needed). Ingested end-to-end; see
+  [11-session-log-cooccurrence-ingestion.md](11-session-log-cooccurrence-ingestion.md).
 
 ## Still open
 
-- **Exact upstream Cooccurrence source**: precise path/version/access
-  method for the Open Targets Cooccurrence dataset (see
-  [02-data-source-cooccurrence.md](02-data-source-cooccurrence.md)).
 - **GWAS Catalog `text` field construction**: GWAS Catalog associations may
   not have a natural free-text field like Cooccurrence does — decide
   whether to synthesize one from study metadata or source it differently
