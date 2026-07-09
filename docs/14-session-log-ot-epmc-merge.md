@@ -134,6 +134,40 @@ the manifest) or stage 6 (training reads the labelled manifest). Freed ~526 MB;
 kept the manifest + the small GWAS source parquets. Re-run the ingest → merge →
 sample chain to regenerate if a re-draw or top-up is needed.
 
+## Integration to main
+
+Both branches were merged to `main` this session:
+
+- **PR #7** (`feat/ot-epmc-ingest-and-merge`) — OT-EPMC FTP ingest, GWAS
+  title corpus, `data_source`, merge, `--include-all-source` sampling.
+- **PR #8** (`feat/stage5-llm-client`) — the real stage-5 `llm_client`
+  (docs/13's rerunnable pipeline). Reconciled against PR #7: `label_row` now
+  sets `LabeledTriple.data_source` from the manifest row, and `run()`
+  authenticates via `settings.anthropic_api_key` (`LITREX_ANTHROPIC_API_KEY`),
+  falling back to the SDK's own env/profile resolution. `data_source` provenance
+  therefore flows all the way into the labelled triples.
+
+`main` now runs stages 2–5 end to end; 70 tests pass, ruff clean.
+
+## Running stage 5 (labelling the merged manifest)
+
+Local is the right place (API/network-bound, no GPU/RAM need; HPC compute-node
+egress is the main risk on SLURM). With `LITREX_ANTHROPIC_API_KEY` in `.env`:
+
+```bash
+# smoke-test 20 rows first (confirms auth + parsing + per-row cost)
+uv run python -m litrex.labelling.llm_client \
+  --input data/processed/sample_manifest.parquet \
+  --output data/processed/labeled_triples.parquet --limit 20
+
+# then the full 2,374-row manifest (drop --limit)
+```
+
+The first run resolves ~1,359 targets (Ensembl REST) + ~586 diseases (OLS4) to
+display names and caches them under `data/cache/`. ~2,374 sequential API calls
+≈ 40–120 min; an Anthropic **Batch API** path (`--batch`, 50% cheaper, async) is
+a possible follow-up if the sequential wall-clock is inconvenient.
+
 ## Points worth taking forward
 
 - **`evidence_europepmc` ≠ the intermediate cooccurrence.** It is already
