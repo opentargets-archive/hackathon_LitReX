@@ -22,6 +22,7 @@ for the scaffolding that will be created once this plan is agreed.
 | 9 | [09-repo-structure.md](09-repo-structure.md) | Scaffolding plan | Repo layout to create |
 | 10 | [10-open-questions.md](10-open-questions.md) | Tracking | Outstanding decisions |
 | 11 | [11-session-log-cooccurrence-ingestion.md](11-session-log-cooccurrence-ingestion.md) | Session log | What's been implemented/run for stage 2, and follow-ups |
+| 12 | [12-session-log-sampling.md](12-session-log-sampling.md) | Session log | What's been implemented/run for stage 4, and follow-ups |
 
 ## Ownership split
 
