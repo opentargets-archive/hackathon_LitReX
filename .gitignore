@@ -219,3 +219,7 @@ __marimo__/
 
 # Pipeline data (downloaded/generated, not source)
 /data/
+
+# litrex_gwas runtime caches/outputs
+.cache/
+output/

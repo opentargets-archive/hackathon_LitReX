@@ -11,6 +11,12 @@ dependencies = [
     "pyarrow>=24.0.0",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
+    # GWAS Catalog data source (stage 3)
+    "pandas>=2.0",
+    "requests>=2.31",
+    "pysbd>=0.3.4",
+    "pyyaml>=6",
+    "defusedxml>=0.7",
 ]
 
 [project.optional-dependencies]
