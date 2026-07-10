@@ -1,4 +1,39 @@
-from litrex.training.train import BASE_MODEL, compute_metrics_from_preds, smoke_preset
+import pytest
+
+from litrex.training.train import (
+    BASE_MODEL,
+    class_weight_vector,
+    compute_metrics_from_preds,
+    resolve_alpha,
+    smoke_preset,
+)
+
+
+def test_resolve_alpha_scheme_and_override():
+    assert resolve_alpha("inverse", None) == 1.0
+    assert resolve_alpha("sqrt", None) == 0.5
+    assert resolve_alpha("uniform", None) == 0.0
+    assert resolve_alpha("inverse", 0.7) == 0.7   # raw alpha wins
+    with pytest.raises(ValueError):
+        resolve_alpha("bogus", None)
+
+
+def test_class_weight_vector_alpha_extremes():
+    counts = {0: 100, 1: 25, 2: 25}   # imbalanced: class 0 is 4x the others
+    # uniform (alpha=0): all weights 1.0
+    assert class_weight_vector(counts, 3, alpha=0.0) == {0: 1.0, 1: 1.0, 2: 1.0}
+    # normalised to mean 1 => weights sum to num_classes
+    inv = class_weight_vector(counts, 3, alpha=1.0)
+    assert sum(inv.values()) == pytest.approx(3.0)
+    assert inv[1] > inv[0]                          # rare class up-weighted
+    # sqrt is gentler than inverse: closer to uniform for the rare class
+    sqrt = class_weight_vector(counts, 3, alpha=0.5)
+    assert 1.0 < sqrt[1] < inv[1]
+
+
+def test_class_weight_vector_absent_class_no_div0():
+    w = class_weight_vector({0: 10}, 3, alpha=1.0)   # classes 1,2 absent
+    assert set(w) == {0, 1, 2} and all(v > 0 for v in w.values())
 
 
 def test_smoke_preset_fills_defaults():
