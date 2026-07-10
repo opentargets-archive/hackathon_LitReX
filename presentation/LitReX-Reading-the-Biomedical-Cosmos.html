@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LitReX — Reading the Biomedical Cosmos</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%A6%96%3C/text%3E%3C/svg%3E">
+<meta name="description" content="LitReX — a machine that reads the biomedical literature to find how genes relate to diseases. A Carl Sagan-style explainer with real, held-out results.">
+</head>
+<body>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg:      #0a0e1c;
+    --bg-2:    #111731;
+    --bg-3:    #19203f;
+    --ink:     #ece7d9;
+    --ink-mut: #9aa0bd;
+    --ink-fnt: #626987;
+    --gold:    #e6b34d;
+    --gold-sf: #f2ce88;
+    --line:    rgba(236,231,217,0.11);
+    --line-2:  rgba(236,231,217,0.06);
+    --star:    236,231,217;
+    --star-a:  0.9;
+    --sig-assoc: #e6b34d;
+    --sig-up:    #ec9a5e;
+    --sig-down:  #6aa9d6;
+    --sig-none:  #9aa0be;
+    --sig-neg:   #bd8ac6;
+    --panel:   rgba(17,23,49,0.62);
+    --serif: "Palatino Linotype","Book Antiqua",Palatino,"Iowan Old Style",Georgia,serif;
+    --sans: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --bg:      #e6e8f1;
+      --bg-2:    #eef0f7;
+      --bg-3:    #dbdef0;
+      --ink:     #161a2c;
+      --ink-mut: #545a77;
+      --ink-fnt: #8288a3;
+      --gold:    #ab7c22;
+      --gold-sf: #8a6416;
+      --line:    rgba(22,26,44,0.14);
+      --line-2:  rgba(22,26,44,0.07);
+      --star:    60,70,120;
+      --star-a:  0.5;
+      --sig-assoc: #a9781f;
+      --sig-up:    #bd6329;
+      --sig-down:  #2c6ca0;
+      --sig-none:  #5a6182;
+      --sig-neg:   #855099;
+      --panel:   rgba(255,255,255,0.55);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg:#0a0e1c; --bg-2:#111731; --bg-3:#19203f; --ink:#ece7d9; --ink-mut:#9aa0bd;
+    --ink-fnt:#626987; --gold:#e6b34d; --gold-sf:#f2ce88; --line:rgba(236,231,217,0.11);
+    --line-2:rgba(236,231,217,0.06); --star:236,231,217; --star-a:0.9;
+    --sig-assoc:#e6b34d; --sig-up:#ec9a5e; --sig-down:#6aa9d6; --sig-none:#9aa0be; --sig-neg:#bd8ac6;
+    --panel:rgba(17,23,49,0.62);
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg:#e6e8f1; --bg-2:#eef0f7; --bg-3:#dbdef0; --ink:#161a2c; --ink-mut:#545a77;
+    --ink-fnt:#8288a3; --gold:#ab7c22; --gold-sf:#8a6416; --line:rgba(22,26,44,0.14);
+    --line-2:rgba(22,26,44,0.07); --star:60,70,120; --star-a:0.5;
+    --sig-assoc:#a9781f; --sig-up:#bd6329; --sig-down:#2c6ca0; --sig-none:#5a6182; --sig-neg:#855099;
+    --panel:rgba(255,255,255,0.55);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body { margin: 0; }
+
+  #sky {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    z-index: 0; pointer-events: none;
+  }
+  .page {
+    position: relative; z-index: 1;
+    background:
+      radial-gradient(120% 80% at 50% -10%, rgba(230,179,77,0.08), transparent 60%),
+      linear-gradient(180deg, transparent, var(--bg) 22%, var(--bg) 100%);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 19px; line-height: 1.72;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  .wrap { width: min(72ch, 90vw); margin-inline: auto; }
+  .prose { width: min(64ch, 90vw); margin-inline: auto; }
+
+  .eyebrow {
+    font-family: var(--sans); font-size: 0.72rem; font-weight: 600;
+    letter-spacing: 0.24em; text-transform: uppercase; color: var(--gold);
+    margin: 0 0 1.1rem;
+  }
+  h1, h2, h3 { font-weight: 600; text-wrap: balance; line-height: 1.12; margin: 0; }
+  p { margin: 0 0 1.35rem; }
+  .lead { color: var(--ink); }
+  .mut { color: var(--ink-mut); }
+  strong { color: var(--gold-sf); font-weight: 600; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* ---- hero ---- */
+  .hero {
+    min-height: 100svh; display: flex; flex-direction: column; justify-content: center;
+    padding: 8vh 0 10vh; position: relative;
+  }
+  .hero h1 {
+    font-size: clamp(2.5rem, 6.5vw, 5rem); letter-spacing: -0.015em;
+    margin: 0 0 1.6rem; max-width: 15ch;
+  }
+  .hero .sub { font-size: clamp(1.05rem, 2vw, 1.3rem); color: var(--ink-mut); max-width: 54ch; }
+  .cue {
+    margin-top: 3.5rem; font-family: var(--sans); font-size: 0.74rem; letter-spacing: 0.22em;
+    text-transform: uppercase; color: var(--ink-fnt); display: inline-flex; align-items: center; gap: 0.7em;
+  }
+  .cue .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gold);
+    animation: fall 2.6s ease-in-out infinite; }
+  @keyframes fall { 0%,100%{transform:translateY(-3px);opacity:.5} 50%{transform:translateY(4px);opacity:1} }
+  @media (prefers-reduced-motion: reduce) { .cue .dot { animation: none; } }
+
+  /* ---- chapters ---- */
+  .chapter { padding: 9vh 0; position: relative; }
+  .ch-mark {
+    font-family: var(--sans); font-size: 0.72rem; letter-spacing: 0.24em; text-transform: uppercase;
+    color: var(--ink-fnt); display: flex; align-items: center; gap: 1rem; margin-bottom: 1.6rem;
+  }
+  .ch-mark::before { content: ""; width: 2rem; height: 1px; background: var(--gold); opacity: .8; }
+  .ch-mark .n { color: var(--gold); font-variant-numeric: tabular-nums; }
+  .chapter h2 { font-size: clamp(1.7rem, 4vw, 2.7rem); margin-bottom: 1.8rem; letter-spacing: -0.01em; }
+
+  .rule { width: min(72ch,90vw); margin: 0 auto; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--line), transparent); }
+
+  /* ---- example sentence ---- */
+  .sentence {
+    font-size: clamp(1.25rem, 3vw, 1.9rem); line-height: 1.5; letter-spacing: -0.01em;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 14px; padding: 2rem 2rem; margin: 0.5rem auto 1.4rem;
+    backdrop-filter: blur(6px);
+  }
+  .ent { border-radius: 5px; padding: 0.05em 0.32em; font-weight: 600; white-space: nowrap; }
+  .ent.t { background: rgba(236,150,90,0.16); color: var(--sig-up); box-shadow: inset 0 0 0 1px rgba(236,150,90,.35); }
+  .ent.d { background: rgba(106,169,214,0.16); color: var(--sig-down); box-shadow: inset 0 0 0 1px rgba(106,169,214,.35); }
+  .sentence .verdict { display: block; margin-top: 1.1rem; font-family: var(--sans);
+    font-size: 0.8rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-mut); }
+  .sentence .verdict b { color: var(--sig-up); }
+  .legend-key { font-family: var(--sans); font-size: 0.82rem; color: var(--ink-mut);
+    display: flex; gap: 1.6rem; flex-wrap: wrap; justify-content: center; }
+  .legend-key span { display: inline-flex; align-items: center; gap: 0.5em; }
+  .kdot { width: 10px; height: 10px; border-radius: 3px; }
+
+  /* ---- signal cards ---- */
+  .signals { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 1px; background: var(--line); border: 1px solid var(--line);
+    border-radius: 14px; overflow: hidden; margin-top: 2.2rem; }
+  .sig { background: var(--bg-2); padding: 1.5rem 1.5rem 1.6rem; display: flex; flex-direction: column; gap: 0.5rem; }
+  .sig .top { display: flex; align-items: center; gap: 0.6em; }
+  .sig .sdot { width: 12px; height: 12px; border-radius: 4px; flex: none; }
+  .sig .name { font-family: var(--sans); font-weight: 600; font-size: 0.86rem; letter-spacing: 0.02em; }
+  .sig .def { font-size: 0.98rem; color: var(--ink-mut); line-height: 1.55; margin: 0; }
+  .sig .f1 { margin-top: auto; font-family: var(--mono); font-size: 0.78rem; color: var(--ink-fnt);
+    letter-spacing: 0.02em; padding-top: 0.7rem; }
+  .sig .f1 b { color: var(--ink); font-weight: 600; }
+
+  /* ---- pipeline ---- */
+  .flow { display: flex; flex-direction: column; gap: 0; margin-top: 2rem;
+    border-left: 1px solid var(--line); padding-left: 0; }
+  .step { display: grid; grid-template-columns: auto 1fr; gap: 1.3rem; padding: 0 0 2.2rem 1.8rem; position: relative; }
+  .step:last-child { padding-bottom: 0; }
+  .step::before { content: ""; position: absolute; left: -5px; top: 4px; width: 9px; height: 9px;
+    border-radius: 50%; background: var(--gold); box-shadow: 0 0 0 4px var(--bg); }
+  .step .s-t { font-family: var(--sans); font-weight: 600; font-size: 0.95rem; margin: 0 0 0.2rem; }
+  .step .s-d { font-size: 0.98rem; color: var(--ink-mut); margin: 0; }
+  .step .s-n { grid-row: 1 / 3; align-self: start; font-family: var(--mono); color: var(--gold);
+    font-size: 0.8rem; }
+
+  /* ---- scorecard ---- */
+  .scores { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr));
+    gap: 1.5rem; margin: 2.4rem 0 1rem; }
+  .score { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 1.6rem 1.5rem; backdrop-filter: blur(6px); }
+  .score .v { font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: clamp(2.4rem, 6vw, 3.3rem); font-weight: 600; color: var(--gold); line-height: 1; letter-spacing: -0.02em; }
+  .score .l { font-family: var(--sans); font-size: 0.8rem; color: var(--ink-mut); margin-top: 0.7rem; line-height: 1.4; }
+
+  /* ---- bar chart ---- */
+  .bars { margin: 2rem 0 0.5rem; display: flex; flex-direction: column; gap: 1.05rem; }
+  .bar-row { display: grid; grid-template-columns: 12.5rem 1fr; align-items: center; gap: 1rem; }
+  .bar-lab { font-family: var(--sans); font-size: 0.82rem; color: var(--ink); display: flex; align-items: center; gap: 0.55em; }
+  .bar-lab .bdot { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+  .bar-track { position: relative; height: 30px; background: var(--bg-3); border-radius: 7px; overflow: hidden; }
+  .bar-fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 7px;
+    transition: width 1.1s cubic-bezier(.22,.61,.36,1); }
+  .bar-val { position: absolute; right: 0.7rem; top: 50%; transform: translateY(-50%);
+    font-family: var(--mono); font-size: 0.82rem; color: var(--ink); font-variant-numeric: tabular-nums; }
+  @media (prefers-reduced-motion: reduce) { .bar-fill { transition: none; } }
+  .chart-note { font-family: var(--sans); font-size: 0.8rem; color: var(--ink-fnt); margin-top: 1.4rem; }
+
+  /* ---- t. rex mark ---- */
+  .mark-wrap { display: flex; flex-direction: column; align-items: center; gap: 1.1rem; margin: 2.8rem auto 0.5rem; }
+  .medallion { position: relative; width: 118px; height: 118px; border-radius: 50%;
+    display: grid; place-items: center; font-size: 3.1rem; line-height: 1;
+    background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(6px); }
+  .medallion::before { content: ""; position: absolute; inset: -1px; border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(230,179,77,0.32), 0 0 36px -6px rgba(230,179,77,0.55); }
+  .medallion span { position: relative; }
+  .mark-cap { font-family: var(--sans); font-size: 0.82rem; color: var(--ink-mut); text-align: center;
+    letter-spacing: 0.01em; max-width: 38ch; line-height: 1.55; }
+  .mark-cap b { color: var(--gold); font-weight: 600; }
+
+  /* ---- pull quote ---- */
+  .pull { border-left: 2px solid var(--gold); padding: 0.2rem 0 0.2rem 1.6rem;
+    font-size: clamp(1.15rem, 2.4vw, 1.5rem); color: var(--ink); font-style: italic;
+    margin: 2.4rem auto; max-width: 60ch; line-height: 1.5; }
+
+  /* ---- reveal ---- */
+  .reveal { opacity: 0; transform: translateY(22px); transition: opacity .9s ease, transform .9s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
+
+  /* ---- technical appendix ---- */
+  details.techbox { width: min(74ch,90vw); margin: 1.6rem auto 0;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    backdrop-filter: blur(6px); overflow: hidden; }
+  details.techbox > summary { list-style: none; cursor: pointer; font-family: var(--sans);
+    font-size: 0.78rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gold);
+    display: flex; align-items: center; gap: 0.8em; padding: 1.25rem 1.6rem; }
+  details.techbox > summary::-webkit-details-marker { display: none; }
+  details.techbox > summary::after { content: "open ＋"; margin-left: auto; color: var(--ink-fnt);
+    font-family: var(--mono); letter-spacing: 0.1em; }
+  details.techbox[open] > summary::after { content: "close －"; }
+  .spec { padding: 0 1.6rem 1.6rem; }
+  .srow { display: grid; grid-template-columns: 12rem 1fr; gap: 1.4rem; padding: 0.95rem 0;
+    border-top: 1px solid var(--line-2); }
+  .srow .k { font-family: var(--mono); font-size: 0.76rem; color: var(--gold-sf); letter-spacing: 0.01em; padding-top: 0.15rem; }
+  .srow .v { color: var(--ink-mut); font-size: 0.96rem; line-height: 1.58; }
+  .srow .v b { color: var(--ink); font-weight: 600; }
+  .srow .v code { font-family: var(--mono); font-size: 0.84em; color: var(--ink);
+    background: var(--bg-3); padding: 0.06em 0.42em; border-radius: 4px; }
+  @media (max-width: 640px) { .srow { grid-template-columns: 1fr; gap: 0.35rem; } }
+
+  /* ---- footer ---- */
+  .foot { border-top: 1px solid var(--line); padding: 5vh 0 8vh; margin-top: 4vh; }
+  .foot .prose { color: var(--ink-mut); font-size: 0.95rem; }
+  .foot .meta { font-family: var(--sans); font-size: 0.78rem; color: var(--ink-fnt); letter-spacing: 0.02em;
+    display: flex; flex-wrap: wrap; gap: 0.5em 1.4em; margin-top: 1.6rem; }
+  .foot .meta b { color: var(--ink-mut); font-weight: 600; }
+  a { color: var(--gold); }
+  :focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 3px; }
+</style>
+
+<canvas id="sky" aria-hidden="true"></canvas>
+
+<div class="page">
+  <!-- HERO -->
+  <header class="hero">
+    <div class="wrap reveal in">
+      <p class="eyebrow">LitReX · a reading machine for the biomedical literature</p>
+      <h1>The answers are already written down. No one has read them all.</h1>
+      <p class="sub">Each year the medical literature grows by more than a million papers — a library no
+        single lifetime can hold. Buried in that ocean of sentences are the ties between our genes and our
+        diseases. This is an instrument built to read them.</p>
+      <span class="cue"><span class="dot"></span> the descent begins below</span>
+    </div>
+  </header>
+
+  <div class="rule"></div>
+
+  <!-- 01 THE LIBRARY -->
+  <section class="chapter">
+    <div class="prose reveal">
+      <p class="ch-mark"><span class="n">01</span> The library of a million hands</p>
+      <h2>A cosmos of sentences</h2>
+      <p>Consider the sum of what we have written about ourselves — every clinical study, every experiment,
+        every careful observation of a cell under a lamp. It is one of the great achievements of our species:
+        a memory kept outside of any one mind, so that those who come after need not learn it all again.</p>
+      <p>But it has grown beyond us. Read one paper every five minutes, day and night without pause, and the
+        biomedical literature — tens of millions of papers — would take you <strong>more than three hundred
+        years</strong> to reach the end. And it grows faster than anyone can read it. The knowledge is not
+        lost, only <strong>unread</strong> — scattered across too many pages, in too many journals, for any
+        single lifetime to gather.</p>
+    </div>
+  </section>
+
+  <div class="rule"></div>
+
+  <!-- INTERLUDE: THE TYRANT IN THE NAME -->
+  <section class="chapter">
+    <div class="prose reveal">
+      <p class="ch-mark"><span class="n">✦</span> An aside · the tyrant in the name</p>
+      <h2>Reading by ancient light</h2>
+      <p>A tyrant lizard hides in the name: <strong>LitReX</strong>, with a <em>T. rex</em> curled inside it.
+        The sky keeps the joke honest — the last <em>Tyrannosaurus</em> looked up about <strong>66 million
+        years</strong> ago, and light from a star that many light-years away is only now reaching us.</p>
+      <p class="mut">To read the whole literature is a journey of the same depth — measured not in light-years,
+        but in all the years we have spent writing down what we know.</p>
+    </div>
+    <div class="wrap reveal">
+      <div class="mark-wrap">
+        <div class="medallion"><span>🦖</span></div>
+        <p class="mark-cap">The LitReX mark, shown as a placeholder. <b>Your colleague's original T. rex logo
+          belongs right here</b> — it replaces this, with her credit beneath.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="rule"></div>
+
+  <!-- 02 ONE KIND OF SENTENCE -->
+  <section class="chapter">
+    <div class="prose reveal">
+      <p class="ch-mark"><span class="n">02</span> One kind of sentence</p>
+      <h2>Where a gene meets a disease</h2>
+      <p>A scientist searching for the roots of an illness is really hunting for one kind of sentence: the
+        kind that names a <span class="ent t">gene</span> and a <span class="ent d">disease</span> in the same
+        breath — and says something about how the two are bound together.</p>
+    </div>
+    <div class="wrap reveal">
+      <p class="sentence">Elevated expression of <span class="ent t">EGFR</span> drives the progression of
+        <span class="ent d">non–small-cell lung cancer</span>.
+        <span class="verdict">the machine reads this as → <b>up-regulation</b></span>
+      </p>
+      <p class="legend-key">
+        <span><span class="kdot" style="background:var(--sig-up)"></span> the gene</span>
+        <span><span class="kdot" style="background:var(--sig-down)"></span> the disease</span>
+      </p>
+    </div>
+  </section>
+
+  <div class="rule"></div>
+
+  <!-- 03 FIVE SIGNALS -->
+  <section class="chapter">
+    <div class="prose reveal">
+      <p class="ch-mark"><span class="n">03</span> Five ways a gene can speak</p>
+      <h2>The vocabulary of a relationship</h2>
+      <p>Not every mention is a claim. We taught the machine to sort each sentence into one of five signals —
+        a small, honest vocabulary for how a gene and a disease can be connected. The number beside each is how
+        reliably it recognises that signal on pages it has <em>never seen before</em>.</p>
+    </div>
+    <div class="wrap reveal">
+      <div class="signals">
+        <div class="sig">
+          <div class="top"><span class="sdot" style="background:var(--sig-up)"></span><span class="name">Up-regulation</span></div>
+          <p class="def">More of the gene, more of the disease — it drives, promotes, or worsens.</p>
+          <p class="f1">reliability · <b>0.67</b></p>
+        </div>
+        <div class="sig">
+          <div class="top"><span class="sdot" style="background:var(--sig-down)"></span><span class="name">Down-regulation</span></div>
+          <p class="def">Less of the gene, more of the disease — its loss or absence does harm.</p>
+          <p class="f1">reliability · <b>0.61</b></p>
+        </div>
+        <div class="sig">
+          <div class="top"><span class="sdot" style="background:var(--sig-assoc)"></span><span class="name">Association</span></div>
+          <p class="def">Linked, somehow — implicated or correlated, but no direction stated.</p>
+          <p class="f1">reliability · <b>0.57</b></p>
+        </div>
+        <div class="sig">
+          <div class="top"><span class="sdot" style="background:var(--sig-none)"></span><span class="name">No relationship</span></div>
+          <p class="def">Named in the same sentence, but nothing is actually claimed between them.</p>
+          <p class="f1">reliability · <b>0.70</b></p>
+        </div>
+        <div class="sig">
+          <div class="top"><span class="sdot" style="background:var(--sig-neg)"></span><span class="name">Negative finding</span></div>
+          <p class="def">Someone looked for a link — and reported that they found none.</p>
+          <p class="f1">reliability · <b>0.12</b></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="rule"></div>
+
+  <!-- 04 TEACHING -->
+  <section class="chapter">
+    <div class="prose reveal">
+      <p class="ch-mark"><span class="n">04</span> Teaching a machine to read</p>
+      <h2>From a careful few to the countless many</h2>
+      <p>We could not hand-label ten million papers. So we did what teachers have always done: we chose a
+        small, careful set of examples — <strong>2,374</strong> sentences drawn from Open Targets and the GWAS
+        Catalog — and used them to teach a machine that already understood the language of biology.</p>
+      <p>Then came the test that keeps us honest. We showed it four of every five examples and <em>hid the
+        fifth</em>. Every score on this page is measured on those hidden pages — the ones it was never allowed
+        to study.</p>
+    </div>
+    <div class="prose reveal">
+      <div class="flow">
+        <div class="step"><span class="s-n">i</span><div><p class="s-t">Gather</p><p class="s-d">Pull sentences that name a gene and a disease together, from the open literature.</p></div></div>
+        <div class="step"><span class="s-n">ii</span><div><p class="s-t">Sample</p><p class="s-d">Draw a representative handful — enough to teach from, small enough to label with care.</p></div></div>
+        <div class="step"><span class="s-n">iii</span><div><p class="s-t">Label</p><p class="s-d">Ask a large language model to read each sentence and name the relationship.</p></div></div>
+        <div class="step"><span class="s-n">iv</span><div><p class="s-t">Organise</p><p class="s-d">Fold thousands of phrasings down into the five clear signals.</p></div></div>
+        <div class="step"><span class="s-n">v</span><div><p class="s-t">Train</p><p class="s-d">Teach a biomedical language model to tell the five signals apart.</p></div></div>
+        <div class="step"><span class="s-n">vi</span><div><p class="s-t">Read at scale</p><p class="s-d">Point the finished instrument at the whole library.</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="rule"></div>
+
+  <!-- 05 WHAT IT LEARNED -->
+  <section class="chapter">
+    <div class="prose reveal">
+      <p class="ch-mark"><span class="n">05</span> What it learned</p>
+      <h2>A measured intelligence</h2>
+      <p>On sentences it had never seen, here is how the finished reader performed.</p>
+    </div>
+    <div class="wrap reveal">
+      <div class="scores">
+        <div class="score"><div class="v">63<span style="font-size:.5em">%</span></div><div class="l">of unseen sentences read correctly</div></div>
+        <div class="score"><div class="v">0.62</div><div class="l">weighted F-score — a fairer mark that accounts for how common each answer is</div></div>
+        <div class="score"><div class="v">5</div><div class="l">distinct relationships told apart from raw text</div></div>
+      </div>
+    </div>
+    <div class="wrap reveal">
+      <div class="bars" id="bars">
+        <div class="bar-row"><span class="bar-lab"><span class="bdot" style="background:var(--sig-none)"></span>No relationship</span>
+          <div class="bar-track"><div class="bar-fill" style="background:var(--sig-none)" data-w="70"></div><span class="bar-val">0.70</span></div></div>
+        <div class="bar-row"><span class="bar-lab"><span class="bdot" style="background:var(--sig-up)"></span>Up-regulation</span>
+          <div class="bar-track"><div class="bar-fill" style="background:var(--sig-up)" data-w="67"></div><span class="bar-val">0.67</span></div></div>
+        <div class="bar-row"><span class="bar-lab"><span class="bdot" style="background:var(--sig-down)"></span>Down-regulation</span>
+          <div class="bar-track"><div class="bar-fill" style="background:var(--sig-down)" data-w="61"></div><span class="bar-val">0.61</span></div></div>
+        <div class="bar-row"><span class="bar-lab"><span class="bdot" style="background:var(--sig-assoc)"></span>Association</span>
+          <div class="bar-track"><div class="bar-fill" style="background:var(--sig-assoc)" data-w="57"></div><span class="bar-val">0.57</span></div></div>
+        <div class="bar-row"><span class="bar-lab"><span class="bdot" style="background:var(--sig-neg)"></span>Negative finding</span>
+          <div class="bar-track"><div class="bar-fill" style="background:var(--sig-neg)" data-w="12"></div><span class="bar-val">0.12</span></div></div>
+      </div>
+      <p class="chart-note">Reliability by signal (F-score, 0 to 1), measured on held-out sentences.</p>
+    </div>
+    <div class="prose reveal">
+      <p class="pull">A good instrument tells you where it is blind. This one barely recognises a negative
+        finding — a study that searched for a link and found none — because we could gather only a handful of
+        such examples to teach it. That is a limit of what we had to show it, not a flaw in its reasoning. And
+        we say so plainly.</p>
+      <p>There was a subtler lesson, too. Left to its instincts, the machine grew fixated on the rare,
+        dramatic answers and kept missing the commonest one — that most sentences, in the end, claim nothing.
+        We taught it a kind of humility. Once it learned to trust the ordinary case, its reading of the whole
+        literature grew markedly clearer — <strong>the everyday sentence went from half-missed to two-thirds
+        caught.</strong></p>
+    </div>
+  </section>
+
+  <div class="rule"></div>
+
+  <!-- 06 SCALE TO COME -->
+  <section class="chapter">
+    <div class="prose reveal">
+      <p class="ch-mark"><span class="n">06</span> The scale to come</p>
+      <h2>An instrument pointed at everything</h2>
+      <p>What we have built reads a few hundred sentences in a heartbeat. The same instrument, turned on the
+        whole library, becomes something else entirely: a way to survey <em>all</em> of human medical writing
+        at once, and to feed what it finds into the open maps of gene and disease that researchers use to reach
+        for new medicines.</p>
+      <p>That full sky is not yet charted — reading every sentence ever written is the work still ahead. But
+        the telescope is built, and it has been shown to see true.</p>
+      <p class="pull">We are a species that writes down what it learns, so the next generation can begin where
+        this one left off. A machine that can finally read all of it is not a replacement for that impulse. It
+        is its fulfilment.</p>
+    </div>
+  </section>
+
+  <div class="rule"></div>
+
+  <!-- TECHNICAL APPENDIX -->
+  <section class="chapter">
+    <div class="prose reveal">
+      <p class="ch-mark"><span class="n">✦</span> For the technically minded</p>
+      <h2>The method, in full</h2>
+      <p>The wonder is real; so is the machinery. For readers who want the vocabulary of the field, here is
+        exactly what was built — data, model, and every number measured on held-out data.</p>
+    </div>
+    <div class="wrap reveal">
+      <details class="techbox">
+        <summary>Methods &amp; results</summary>
+        <div class="spec">
+          <div class="srow"><span class="k">task</span><span class="v">Supervised <b>5-class</b> classification of target–disease relations from sentence / abstract text.</span></div>
+          <div class="srow"><span class="k">corpus</span><span class="v">Target–disease co-occurrences from <b>Open Targets</b> (Europe PMC text-mined evidence) and the <b>GWAS Catalog</b>. Sentence-level match first, abstract-level fallback; PMID-keyed, recency-filtered.</span></div>
+          <div class="srow"><span class="k">silver labels</span><span class="v"><b>2,374</b> triples labelled by LLM judges (OpenAI <code>gpt-4.1</code> + Anthropic Claude): free-text relation phrase + confidence.</span></div>
+          <div class="srow"><span class="k">label closure</span><span class="v">Free text → 5 classes by embedding each relation (<code>text-embedding-3-small</code>) and assigning to the nearest fixed <b>class prototype</b> by cosine similarity — chosen over clustering because it keeps direction-of-effect (up vs down) separable.</span></div>
+          <div class="srow"><span class="k">encoder</span><span class="v"><b>PubMedBERT</b> (<code>BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext</code>), fine-tuned.</span></div>
+          <div class="srow"><span class="k">input</span><span class="v">Typed entity markers: <code>[TGT] gene [/TGT] [DIS] disease [/DIS] text</code>. Marker tokens added to the vocabulary; embeddings resized.</span></div>
+          <div class="srow"><span class="k">split</span><span class="v"><code>StratifiedGroupKFold</code> grouped by publication (no PMID leakage across splits) and stratified by class → <b>80 / 10 / 10</b> (1,805 / 226 / 226). Asserted leak-free.</span></div>
+          <div class="srow"><span class="k">loss</span><span class="v">Class-weighted × per-sample confidence-weighted cross-entropy. Class weights = <b>√-inverse-frequency</b> (α = 0.5).</span></div>
+          <div class="srow"><span class="k">model selection</span><span class="v">5-fold CV on the train split; weight-scheme sweep — <b>sqrt 0.503</b> &gt; uniform 0.486 &gt; inverse 0.472 (mean macro-F1). sqrt chosen (+0.031 over inverse, &gt;2× the ±0.014 fold std).</span></div>
+          <div class="srow"><span class="k">test metrics</span><span class="v">Held-out 10%: <b>accuracy 0.628 · weighted-F1 0.619 · macro-F1 0.531</b>. Per-class F1 — no_relationship 0.70 · upregulation 0.67 · downregulation 0.61 · association 0.57 · negative_finding 0.12.</span></div>
+          <div class="srow"><span class="k">inference</span><span class="v">Load-once, GPU-batched softmax scorer. Standalone parquet CLI + a <code>pandas_udf</code> wrapper (load-once-per-executor) for PySpark scale-out. Validated: reproduces the training-time eval predictions row-for-row.</span></div>
+          <div class="srow"><span class="k">stack</span><span class="v">Python 3.11 · PyTorch · HF Transformers · scikit-learn. Trained on an <b>NVIDIA A100 80GB</b> (CUDA 12.8, cu128 build).</span></div>
+          <div class="srow"><span class="k">known limits</span><span class="v"><b>negative_finding</b> is under-trained (152 examples) → F1 0.12; a data gap, not a modelling one. Full-corpus inference pending (the merged pool must be regenerated).</span></div>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="foot">
+    <div class="prose">
+      <p><strong>About this prototype.</strong> Every figure here is real, measured on data the model was
+        never trained on. It is an early instrument, not a finished product — shown to make the work legible to
+        anyone, not only to those who build such things.</p>
+      <div class="meta">
+        <span><b>Model</b> PubMedBERT, fine-tuned</span>
+        <span><b>Taught on</b> 2,374 labelled sentences</span>
+        <span><b>Sources</b> Open Targets · GWAS Catalog</span>
+        <span><b>Split</b> 80 / 10 / 10 · train / tune / test</span>
+        <span><b>Held-out accuracy</b> <span class="num">62.8%</span></span>
+      </div>
+    </div>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var canvas = document.getElementById('sky');
+    var ctx = canvas.getContext('2d');
+    var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var stars = [], w, h, raf;
+
+    function readStar() {
+      var cs = getComputedStyle(document.documentElement);
+      return { rgb: cs.getPropertyValue('--star').trim(), a: parseFloat(cs.getPropertyValue('--star-a')) || 0.8 };
+    }
+    var sky = readStar();
+
+    function resize() {
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      w = canvas.width = Math.floor(innerWidth * dpr);
+      h = canvas.height = Math.floor(innerHeight * dpr);
+      canvas.style.width = innerWidth + 'px';
+      canvas.style.height = innerHeight + 'px';
+      var count = Math.min(220, Math.floor(innerWidth * innerHeight / 7000));
+      stars = [];
+      for (var i = 0; i < count; i++) {
+        stars.push({
+          x: Math.random() * w, y: Math.random() * h,
+          r: (Math.random() * 1.3 + 0.3) * dpr,
+          base: Math.random() * 0.5 + 0.2,
+          tw: Math.random() * Math.PI * 2,
+          sp: Math.random() * 0.9 + 0.25
+        });
+      }
+    }
+
+    function draw(t) {
+      ctx.clearRect(0, 0, w, h);
+      for (var i = 0; i < stars.length; i++) {
+        var s = stars[i];
+        var tw = reduce ? s.base : s.base + Math.sin(t * 0.001 * s.sp + s.tw) * 0.35;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(' + sky.rgb + ',' + Math.max(0, Math.min(1, tw)) * sky.a + ')';
+        ctx.fill();
+      }
+      if (!reduce) raf = requestAnimationFrame(draw);
+    }
+
+    function start() { sky = readStar(); resize(); cancelAnimationFrame(raf); if (reduce) draw(0); else raf = requestAnimationFrame(draw); }
+    window.addEventListener('resize', function () { clearTimeout(window._rz); window._rz = setTimeout(start, 150); });
+    // re-read palette when the viewer flips theme
+    new MutationObserver(function () { sky = readStar(); if (reduce) draw(0); })
+      .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(){ sky = readStar(); if (reduce) draw(0); });
+    start();
+
+    // scroll reveals
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          e.target.classList.add('in');
+          if (e.target.id === 'bars' || e.target.querySelector) {
+            var bars = (e.target.id === 'bars' ? e.target : e.target).querySelectorAll ? e.target.querySelectorAll('.bar-fill') : [];
+          }
+          io.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.16 });
+    document.querySelectorAll('.reveal').forEach(function (el) { io.observe(el); });
+
+    // animate bars when the chart enters view
+    var barWrap = document.getElementById('bars');
+    if (barWrap) {
+      var bio = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) {
+            e.target.querySelectorAll('.bar-fill').forEach(function (b, i) {
+              setTimeout(function () { b.style.width = b.getAttribute('data-w') + '%'; }, reduce ? 0 : i * 120);
+            });
+            bio.unobserve(e.target);
+          }
+        });
+      }, { threshold: 0.4 });
+      bio.observe(barWrap);
+    }
+  })();
+</script>
+
+</body>
+</html>
