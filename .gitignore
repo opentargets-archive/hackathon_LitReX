@@ -226,3 +226,7 @@ __marimo__/
 # litrex_gwas runtime caches/outputs
 .cache/
 output/
+
+# local smoke-train venv + HF cache
+.venv-smoke/
+.hf_cache/

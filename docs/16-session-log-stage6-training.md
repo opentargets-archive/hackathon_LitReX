@@ -97,7 +97,31 @@ cross-entropy; eval = macro/weighted/per-class F1 + confusion matrix; saves
 model + `metrics.json` + `model_card.json`. Heavy deps are lazy-imported so the
 module imports without torch; the metric helper is unit-tested. **Runs on codon
 GPU** via the SLURM script (offline HF cache pre-downloaded on a login node,
-`--gres=gpu:1`). 76 tests pass, ruff clean.
+`--gres=gpu:1`).
+
+### Local CPU smoke-train — `--smoke` + `scripts/smoke_train_local.sh`
+
+Added a `--smoke` preset (100 rows/split, 1 epoch, forced CPU, distinct
+`models/stage6_smoke/` output) plus `--limit`/`--cpu` for finer control. The
+preset resolution is a torch-free helper (`smoke_preset`), unit-tested.
+
+**Verified end-to-end on the Intel Mac.** The `[training]` extra pins a modern
+torch with **no macOS x86_64 wheel** (last Intel wheel is torch 2.2.2), so the
+smoke runs in an isolated pinned venv that `scripts/smoke_train_local.sh` builds
+(torch 2.2.2 / transformers 4.44). One-liner:
+
+```bash
+bash scripts/smoke_train_local.sh          # ~1 min on CPU
+```
+
+Ran clean: tokenization → entity-marker special tokens → weighted-loss steps →
+epoch eval → best-model select → test eval → `model/ + metrics.json +
+model_card.json` (card carries `smoke_run: true`, `device: cpu`). Test macro-F1
+was ~0.10 — **meaningless by design** (100 rows, 1 epoch); the point is the loop
+plumbing works before spending a GPU slot. One old-stack quirk fixed:
+safetensors' contiguity check rejects a post-`resize_token_embeddings` tensor on
+torch 2.2.2, so the CPU path saves `.bin` (`save_safetensors=not use_cpu`); the
+GPU node keeps safetensors. 79 tests pass, ruff clean.
 
 ### Pending (on the GPU node)
 

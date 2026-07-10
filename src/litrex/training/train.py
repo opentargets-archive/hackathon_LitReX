@@ -45,8 +45,15 @@ def train(
     lr: float = 2e-5,
     max_length: int = 256,
     seed: int = 0,
+    limit: int | None = None,
+    use_cpu: bool = False,
 ) -> dict:
-    """Fine-tune, evaluate on the held-out test split, and save model + card."""
+    """Fine-tune, evaluate on the held-out test split, and save model + card.
+
+    ``limit`` heads each split to N rows and ``use_cpu`` forces CPU — together
+    they give a fast local smoke-train (see ``--smoke``) that exercises the whole
+    loop before committing a GPU slot.
+    """
     import pandas as pd
     import torch
     from datasets import Dataset
@@ -77,6 +84,8 @@ def train(
     def load(split: str):
         cols = ["input_text", "label", "sample_weight"]
         df = pd.read_parquet(data_dir / f"{split}.parquet")[cols]
+        if limit:
+            df = df.head(limit)  # smoke-train: tiny subset, whole loop still exercised
         ds = Dataset.from_pandas(df, preserve_index=False)
         return ds.map(lambda b: tokenizer(b["input_text"], truncation=True, max_length=max_length),
                       batched=True, remove_columns=["input_text"])
@@ -121,6 +130,10 @@ def train(
         logging_steps=20,
         remove_unused_columns=False,  # keep sample_weight
         report_to=[],
+        use_cpu=use_cpu,
+        # old CPU/smoke torch stacks choke on safetensors' contiguity check after
+        # resize_token_embeddings; .bin sidesteps it. GPU node keeps safetensors.
+        save_safetensors=not use_cpu,
     )
     trainer = WeightedTrainer(
         model=model, args=args, train_dataset=train_ds, eval_dataset=val_ds,
@@ -145,12 +158,31 @@ def train(
         "sizes": meta["sizes"],
         "hyperparams": {"epochs": epochs, "batch_size": batch_size, "lr": lr,
                         "max_length": max_length, "seed": seed},
+        "smoke_run": bool(limit),  # true => tiny subset / CPU sanity check, not a real model
+        "row_limit": limit,
+        "device": "cpu" if use_cpu else "auto",
         "test_metrics": test_metrics,
     }
     (output_dir / "model_card.json").write_text(json.dumps(model_card, indent=2, default=str))
     logger.info("done: test macro-F1=%.3f -> %s",
                 test_metrics.get("test_macro_f1", float("nan")), output_dir)
     return test_metrics
+
+
+def smoke_preset(smoke: bool, epochs: int, limit: int | None, output_dir: str) -> dict:
+    """Resolve the ``--smoke`` convenience preset (torch-free, so unit-testable).
+
+    Explicitly-passed flags win; the preset only fills defaults: 100 rows/split,
+    1 epoch, CPU, and a distinct output dir so a smoke never clobbers a real run.
+    """
+    if not smoke:
+        return {"epochs": epochs, "limit": limit, "use_cpu": False, "output_dir": output_dir}
+    return {
+        "epochs": 1 if epochs == 4 else epochs,          # 4 == the CLI default
+        "limit": limit or 100,
+        "use_cpu": True,
+        "output_dir": "models/stage6_smoke" if output_dir == "models/stage6" else output_dir,
+    }
 
 
 def _main() -> None:
@@ -162,11 +194,21 @@ def _main() -> None:
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--limit", type=int, default=None,
+                        help="head each split to N rows (local sanity check)")
+    parser.add_argument("--cpu", action="store_true", help="force CPU (no GPU/MPS)")
+    parser.add_argument("--smoke", action="store_true",
+                        help="fast CPU smoke-train: 100 rows/split, 1 epoch, CPU")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    metrics = train(args.data_dir, args.output_dir, args.base_model,
-                    args.epochs, args.batch_size, args.lr, seed=args.seed)
+
+    preset = smoke_preset(args.smoke, args.epochs, args.limit, args.output_dir)
+    use_cpu = args.cpu or preset["use_cpu"]
+
+    metrics = train(args.data_dir, preset["output_dir"], args.base_model,
+                    preset["epochs"], args.batch_size, args.lr, seed=args.seed,
+                    limit=preset["limit"], use_cpu=use_cpu)
     print(json.dumps(metrics, indent=2, default=str))
 
 
