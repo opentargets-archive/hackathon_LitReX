@@ -26,6 +26,7 @@ dependencies = [
 
 [project.optional-dependencies]
 training = [
+    "accelerate>=1.1.0",  # required by transformers Trainer on the GPU node
     "datasets>=5.0.0",
     "scikit-learn>=1.9.0",
     "torch>=2.12.1",
