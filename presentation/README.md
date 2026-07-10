@@ -22,25 +22,13 @@ Everything is in that one file. No build step.
   [`../docs/16-session-log-stage6-training.md`](../docs/16-session-log-stage6-training.md)).
   If the model is retrained, update the scorecard, the per-class bars
   (`data-w="…"`), and the technical appendix to match.
-- **The T. rex logo** — the gold medallion currently shows a placeholder emoji.
-  To use the real artwork, find this block:
-
-  ```html
-  <div class="medallion"><span>🦖</span></div>
-  ```
-
-  and replace it with an image:
-
-  ```html
-  <div class="medallion"><img src="trex-logo.svg" alt="LitReX T. rex logo"
-       style="width:76%;height:76%;object-fit:contain"></div>
-  ```
-
-  Put `trex-logo.svg` (or `.png`) in this folder. **Note:** a relative path
-  means the file is no longer a single self-contained document — to keep it
-  shareable as one file, embed the image as a `data:` URI instead (ask and it
-  can be inlined). Then update the credit line just below the medallion
-  (`.mark-cap`) with the artist's name.
+- **The T. rex logo** — the gold medallion embeds `litrex_logo.png` inline as
+  a `data:` URI, so the page stays a single self-contained file. To swap the
+  artwork, replace the `data:image/...;base64,…` string in the `<img src="…">`
+  inside the `.medallion` block (search for `class="medallion"`), and update
+  the credit line just below it (`.mark-cap`) with the new artist's name.
+  Keep the source image (`litrex_logo.png`) in this folder too, for reference
+  and for re-encoding if it changes.
 
 ## Provenance
 
