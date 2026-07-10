@@ -115,6 +115,14 @@ def train(
         logits, labels = eval_pred
         return compute_metrics_from_preds(labels, np.asarray(logits).argmax(-1), classes)
 
+    extra_args = {}
+    if use_cpu:
+        # Old CPU/smoke torch stacks choke on safetensors' contiguity check after
+        # resize_token_embeddings; .bin sidesteps it. transformers>=5 dropped this
+        # kwarg (safetensors is mandatory) — so only pass it on the CPU path, where
+        # the pinned older transformers still accepts it.
+        extra_args["save_safetensors"] = False
+
     args = TrainingArguments(
         output_dir=str(output_dir / "checkpoints"),
         num_train_epochs=epochs,
@@ -131,9 +139,7 @@ def train(
         remove_unused_columns=False,  # keep sample_weight
         report_to=[],
         use_cpu=use_cpu,
-        # old CPU/smoke torch stacks choke on safetensors' contiguity check after
-        # resize_token_embeddings; .bin sidesteps it. GPU node keeps safetensors.
-        save_safetensors=not use_cpu,
+        **extra_args,
     )
     trainer = WeightedTrainer(
         model=model, args=args, train_dataset=train_ds, eval_dataset=val_ds,
