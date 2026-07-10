@@ -3,8 +3,11 @@
 #
 # Prereqs (run ONCE on a login node, which has internet — compute nodes may not):
 #   1) build the splits:   python -m litrex.training.dataset
-#   2) pre-download the base model into the HF cache (offline on the node):
+#   2) put uv's cache on a big filesystem (home quota is too small for the
+#      ~2.5GB CUDA torch wheel) and pre-download the base model into the HF cache:
+#        export UV_CACHE_DIR="$PWD/.uv-cache"     # same FS as the repo (nobackup)
 #        export HF_HOME="$PWD/.hf_cache"
+#        uv sync --extra training                 # pulls torch 2.11.0+cu128 (CUDA 12.8)
 #        uv run --extra training python - <<'PY'
 #        from transformers import AutoTokenizer, AutoModelForSequenceClassification
 #        m="microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext"
@@ -12,8 +15,9 @@
 #        PY
 #   3) submit:  sbatch scripts/train_stage6.slurm
 #
-# CONFIRM for your cluster: the GPU partition name (--partition) and that
-# `uv --extra training` installs a torch build matching the node's CUDA.
+# The CUDA-12.8 torch build is pinned in pyproject (uv cu128 index) — verified on
+# an A100 80GB (driver 570). CONFIRM only the GPU partition name (--partition)
+# for your cluster; the interactive node observed was codon-gpu-015.
 
 #SBATCH --job-name=litrex-stage6
 #SBATCH --partition=gpu            # <-- confirm codon's GPU partition name
@@ -29,6 +33,8 @@
 set -euo pipefail
 mkdir -p logs
 
+# Keep uv's cache + HF cache off the small home quota (both default into $HOME).
+export UV_CACHE_DIR="${UV_CACHE_DIR:-$PWD/.uv-cache}"
 # Use the model pre-downloaded into the HF cache on the login node; stay offline.
 export HF_HOME="${HF_HOME:-$PWD/.hf_cache}"
 export TRANSFORMERS_OFFLINE=1

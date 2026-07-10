@@ -230,3 +230,6 @@ output/
 # local smoke-train venv + HF cache
 .venv-smoke/
 .hf_cache/
+
+# uv cache relocated onto nobackup on codon
+.uv-cache/
