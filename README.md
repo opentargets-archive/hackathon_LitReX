@@ -1,5 +1,7 @@
 # LitReX
 
+<img src="presentation/litrex_logo.png" alt="LitReX T. rex logo" width="160">
+
 Biomedical relation extraction from literature: classify the relationship
 between a **target** and a **disease** as expressed in literature text —
 e.g. does the text say the target's upregulation is associated with the
