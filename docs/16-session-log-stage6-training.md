@@ -164,6 +164,29 @@ transformers-5 dropped `save_safetensors`; `accelerate` missing from extra;
 default PyPI torch → CPU fallback (pinned cu128 for driver 570); home disk quota
 (uv/HF cache relocated to nobackup).
 
+### 5-fold CV + class-weight sweep (A100, 2026-07-10)
+
+Added `--cv` (K-fold over the `cv_fold` column, fresh model per fold, writes
+`cv_results.json`) and tunable weighting `--weight-scheme {inverse,sqrt,uniform}`
+(`class_weight_vector`: `(1/count)**alpha` normalised to mean 1).
+
+CV of the baseline weighting: **macro-F1 0.472 ± 0.014** — the tight std confirms
+the single-split 0.515 wasn't a lucky draw. CV also flattens the per-class
+picture the single split flattered: up/down-regulation are ~0.48–0.50 in CV (were
+0.62–0.67 on the one test split).
+
+Weight-scheme sweep (5-fold CV macro-F1 mean):
+
+| scheme  | alpha | CV macro-F1 |
+|---------|-------|-------------|
+| **sqrt**    | 0.5 | **0.503** |
+| uniform | 0.0 | 0.486 |
+| inverse | 1.0 | 0.472 |
+
+**Decision: `sqrt`.** It beats inverse-frequency by +0.031 (>2× the ±0.014 std,
+so a real gain): full inverse-freq over-suppressed the majority class. Final
+model retrained with `--weight-scheme sqrt` (saved to `models/stage6/`).
+
 ### Next candidates
 
 - **5-fold CV** (the `cv_fold` column is already in the train split) for a
