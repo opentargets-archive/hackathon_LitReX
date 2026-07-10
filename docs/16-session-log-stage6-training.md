@@ -123,7 +123,53 @@ safetensors' contiguity check rejects a post-`resize_token_embeddings` tensor on
 torch 2.2.2, so the CPU path saves `.bin` (`save_safetensors=not use_cpu`); the
 GPU node keeps safetensors. 79 tests pass, ruff clean.
 
-### Pending (on the GPU node)
+### GPU run — result (codon-gpu-015, A100 80GB, 2026-07-10)
 
-- Run `scripts/train_stage6.slurm`; record test macro-F1 / per-class F1 /
-  confusion matrix + the model card here.
+Ran on the A100 (torch 2.11.0+cu128). Full run: train 1,805 / val 226 / test
+226, 4 epochs, batch 16, lr 2e-5, class-weighted + confidence-weighted loss.
+Best-by-val-macro-F1 checkpoint evaluated on the held-out test split:
+
+**Test: accuracy 0.518 · macro-F1 0.515 · weighted-F1 0.528**
+
+| Class | Test n | Precision | Recall | F1 |
+|---|---|---|---|---|
+| upregulation      |  29 | 0.68 | 0.66 | 0.667 |
+| downregulation    |  30 | 0.52 | 0.77 | 0.622 |
+| association       |  40 | 0.51 | 0.75 | 0.606 |
+| no_relationship   | 112 | 0.80 | 0.35 | 0.484 |
+| negative_finding  |  15 | 0.13 | 0.40 | 0.197 |
+
+Confusion (rows=true, cols=pred; order assoc/down/neg/no_rel/up):
+```
+[[30,  4,  5,  1,  0],
+ [ 1, 23,  2,  2,  2],
+ [ 4,  3,  6,  2,  0],
+ [24,  9, 33, 39,  7],
+ [ 0,  5,  0,  5, 19]]
+```
+
+Reading:
+- **Directionality separates cleanly** — up/down-regulation are the two best
+  classes (0.62–0.67), validating the embedding-prototype taxonomy's core bet.
+- **no_relationship is precision-heavy (0.80) / low-recall (0.35)**: the class
+  weighting (0.41) intentionally down-weights the majority class, so it
+  under-predicts it — 33 true no_rel rows leak into negative_finding, 24 into
+  association. Tunable via how aggressive the weighting is.
+- **negative_finding is the weak spot (F1 0.20)**: smallest class (152 train),
+  semantically adjacent to no_relationship, acts as a sink for its misses
+  (precision 0.13). Priority for improvement.
+
+Environment fixes needed to get onto the GPU (all merged to main, PR #16–19):
+transformers-5 dropped `save_safetensors`; `accelerate` missing from extra;
+default PyPI torch → CPU fallback (pinned cu128 for driver 570); home disk quota
+(uv/HF cache relocated to nobackup).
+
+### Next candidates
+
+- **5-fold CV** (the `cv_fold` column is already in the train split) for a
+  variance estimate instead of a single 80/10/10 point estimate.
+- **Temper the class weighting** (e.g. sqrt-inverse-freq or a tunable α) to lift
+  no_relationship recall without collapsing the minority classes.
+- **negative_finding**: too few examples — gather more, or fold into
+  no_relationship if the distinction isn't worth a separate head.
+- Light hyperparameter sweep (epochs / lr) now that the loop is cheap on GPU.
