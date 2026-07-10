@@ -187,6 +187,29 @@ Weight-scheme sweep (5-fold CV macro-F1 mean):
 so a real gain): full inverse-freq over-suppressed the majority class. Final
 model retrained with `--weight-scheme sqrt` (saved to `models/stage6/`).
 
+### Final model — sqrt, 80/10/10 test (A100, 2026-07-10)
+
+**Test: accuracy 0.628 · macro-F1 0.531 · weighted-F1 0.619** (vs inverse
+0.518 / 0.515 / 0.528).
+
+| Class | Test n | Precision | Recall | F1 | vs inverse |
+|---|---|---|---|---|---|
+| no_relationship  | 112 | 0.73 | 0.66 | 0.695 | 0.484 ⬆ |
+| upregulation     |  29 | 0.77 | 0.59 | 0.667 | ≈ |
+| downregulation   |  30 | 0.54 | 0.70 | 0.609 | ≈ |
+| association      |  40 | 0.47 | 0.73 | 0.569 | slight ⬇ |
+| negative_finding |  15 | 0.50 | 0.07 | 0.118 | 0.197 ⬇ |
+
+sqrt fixed the majority class — no_relationship recall 0.35 → 0.66 — lifting
+accuracy +11pt and weighted-F1 +9pt (the metrics that matter when no_relationship
+is half the data). Macro-F1 only +0.016 because the gain was offset by
+**negative_finding collapsing** (0.20 → 0.12): gentler minority up-weighting lets
+the tiniest/hardest class (152 train, semantically ≈ no_relationship) be absorbed
+into no_relationship (1/15 recovered). This is a **data** limitation, not a
+weighting one — the fix is more negative_finding examples or dropping the class.
+Directionality stays solid (up 0.67, down 0.61). **`models/stage6/` is the
+deliverable model.**
+
 ### Next candidates
 
 - **5-fold CV** (the `cv_fold` column is already in the train split) for a
