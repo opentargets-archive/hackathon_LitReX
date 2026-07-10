@@ -29,12 +29,24 @@ training = [
     "accelerate>=1.1.0",  # required by transformers Trainer on the GPU node
     "datasets>=5.0.0",
     "scikit-learn>=1.9.0",
-    "torch>=2.12.1",
+    "torch>=2.11.0",  # cu128 (CUDA 12.8) build tops out here; matches driver 570
     "transformers>=5.13.0",
 ]
 spark = [
     "pyspark>=4.1.2",
 ]
+
+# The default PyPI torch wheel targets a CUDA newer than the codon GPU driver
+# (570 / CUDA 12.8) supports, so it falls back to CPU. Pull the CUDA-12.8 build
+# from PyTorch's index instead. Linux-only marker: the Intel Mac has no torch
+# wheel either way and resolves from PyPI (used only for the CPU smoke venv).
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128", marker = "sys_platform == 'linux'" }
 
 [build-system]
 requires = ["uv_build>=0.11.14,<0.12.0"]
