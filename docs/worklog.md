@@ -206,7 +206,7 @@ data — the OT co-occurrence pool and merged pool were consumed at sampling tim
 them needs GCS access (`gs://open-targets-pipeline-runs/ds/26.06.0-dev2/...`) or the EPMC FTP
 `--from-ftp` path + that OT release. GWAS Stage 3 outputs survive, so that source is present.
 
-## Not in the repo / not in the tarball
+## Not in the tarball but in the repo copied to google cloud
 
 - `models/stage6/` — trained model, **codon-only** (gitignored). Copy from
   `/hps/nobackup/emcdonagh/hackathon-litrex/hackathon_LitReX/models/stage6/` if needed.
