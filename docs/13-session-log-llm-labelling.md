@@ -129,3 +129,65 @@ systematic bias here would quietly degrade the classifier's training data.
   low-confidence band for the entity-linking issue above, and decide the
   taxonomy question (still fully open, since this pass deliberately avoided
   categorizing) before stage 6.
+
+## Follow-up: review prep and quantitative audit
+
+**Scope:** a later session that did not re-run labelling, but analyzed the
+existing `labeled_triples.parquet` directly and built the tooling/sample
+needed for the still-open manual review pass above. No rows were
+relabelled and no source data changed.
+
+**CSV exports added** (both gitignored under `/data/`, local-only):
+
+- `data/processed/labeled_triples.csv` — the full 500-row dataset, sorted
+  `confidence` ascending then `relation` alphabetically, for anyone who
+  wants to browse it outside Python/pandas.
+- `data/review/low_confidence_review_sample.csv` — a 50-row stratified
+  sample drawn from the 67 rows with `confidence < 0.3`, built for the
+  entity-linking audit this doc already called for. Stratified by
+  (auto-flagged-mismatch × section), proportional allocation, seed 42.
+  Columns include the stage-4 `target_start`/`target_end`/`disease_start`/
+  `disease_end` offsets joined back in from `sample_manifest.parquet`, and
+  resolved `target_symbol`/`disease_label` from the `entity_names.py`
+  caches, so each row can be checked without re-resolving IDs by hand.
+- An HTML review page (highlighted target/disease spans, filter/search,
+  per-row verdict radio buttons) was built from this sample but **not
+  published** — held for the user to decide separately.
+
+**Quantitative confirmation of docs/13's original numbers:** re-derived
+directly from the parquet — 500 rows, mean confidence 0.58, median 0.60,
+378 unique targets, 229 unique diseases, 423 abstract / 77 title, 51 rows
+with empty `evidence_span`. All consistent with the original session's
+figures above; recorded here as a second, independently-computed
+confirmation rather than a correction.
+
+**Entity-mismatch rate, first rough number:** of the 67 rows scoring
+`<0.3`, a naive keyword scan (`does not mention|not actually|unrelated|
+mismatch|no relationship|not asserted` against the model's own `relation`
+text) matched only **13 rows (~19% of the <0.3 band, ~2.6% of the full
+500)**. This is a first quantitative anchor against the original session's
+qualitative "9 of 10 sub-agents flagged this unprompted" — it suggests the
+*explicitly self-reported* mismatch rate is a small slice of the low-confidence
+band, with the rest being other low-confidence reasons (hedged language,
+genuine list co-mentions, indirect statements). **Caveat: this was a single
+unvalidated regex pass, not a manual audit** — no spot-checking was done on
+false positives/negatives, so treat it as a lower bound / rough order of
+magnitude, not a settled count. The actual manual check (docs/05 step 4)
+is what the 50-row sample above is for.
+
+**Relationship-shape scan, exploratory only:** a separate ad hoc keyword
+scan over all 500 `relation` texts found rows matching: risk/association
+language (107), therapeutic-target/treatment framing (86),
+mutation/variant-driven (38), biomarker/diagnostic framing (41),
+up/down-regulation or expression change (33), direct causal language (45).
+Categories are not mutually exclusive and this was not validated —
+**it should not be read as a candidate taxonomy**, only as a hint that the
+relationship space is broader than the original 4-item hypothesis
+(positive-up/positive-down/negative/neutral) and includes causal,
+risk-association, therapeutic-target, and biomarker framings as apparently
+distinct shapes. Settling the actual taxonomy still requires the manual
+review pass.
+
+**Still open, updated:** the manual review pass and taxonomy decision are
+unchanged as open — this follow-up only prepared sampling/tooling for it,
+it did not perform it.
